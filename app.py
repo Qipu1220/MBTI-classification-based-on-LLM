@@ -98,7 +98,7 @@ def initialize_pipeline():
         # Initialize pipeline
         try:
             pipeline = MBTIPipeline(
-                data_dir=str(dataset_path),
+                data_dir=str(dataset_path.parent),
                 semantic_model_name="all-MiniLM-L6-v2",
                 device=None,  # Auto-detect device
                 enable_caching=True
