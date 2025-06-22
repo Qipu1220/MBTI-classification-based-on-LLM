@@ -290,17 +290,31 @@ def survey_interface():
             
             col1, col2 = st.columns([1, 2])
             
+            # Initialize default values
+            predicted_type = "Unknown"
+            similar_responses = []
+            
+            # Safely get values from result
+            if result and isinstance(result, dict):
+                predicted_type = result.get('predicted_type', 'Unknown')
+                if 'analysis' in result and isinstance(result['analysis'], dict):
+                    similar_responses = result['analysis'].get('similar_responses', [])
+            
             with col1:
                 st.metric(
                     "Loại tính cách MBTI của bạn:",
-                    result['predicted_type'],
+                    predicted_type,
                     help="Kết quả dựa trên phân tích các phản hồi của bạn"
                 )
             
             with col2:
-                # Show confidence based on top matches
-                if result['analysis']['similar_responses']:
-                    top_scores = [r.get('hybrid_score', 0) for r in result['analysis']['similar_responses'][:3]]
+                # Show confidence based on top matches if we have similar responses
+                if similar_responses:
+                    # Use final_score if available, otherwise use hybrid_score, default to 0
+                    top_scores = [
+                        r.get('final_score', r.get('hybrid_score', 0)) 
+                        for r in similar_responses[:3]
+                    ]
                     avg_confidence = sum(top_scores) / len(top_scores) if top_scores else 0
                     st.metric(
                         "Độ tin cậy:",
@@ -311,20 +325,27 @@ def survey_interface():
             # Show detailed analysis
             st.subheader("📊 Phân tích chi tiết")
             
-            if result['analysis']['similar_responses']:
+            if similar_responses:
                 st.write("**Các mẫu tương tự nhất với phản hồi của bạn:**")
                 
-                for i, response in enumerate(result['analysis']['similar_responses'][:5], 1):
-                    with st.expander(f"Mẫu {i}: MBTI {response.get('mbti_type', 'Unknown')} (Độ phù hợp: {response.get('hybrid_score', 0):.1%})"):
-                        st.write("**Nội dung:**", response.get('chunk_text', '')[:300] + "...")
+                for i, response in enumerate(similar_responses[:5], 1):
+                    # Safely get response data with defaults
+                    mbti_type = response.get('mbti_type', 'Unknown')
+                    score = response.get('final_score', response.get('hybrid_score', 0))
+                    text = response.get('text', response.get('chunk_text', 'No text available'))
+                    full_text = response.get('full_text', text)  # Fallback to text if full_text not available
+                    
+                    with st.expander(f"Mẫu {i}: MBTI {mbti_type} (Độ phù hợp: {score:.1%})"):
+                        st.write(f"**Nội dung:** {text}")
+                        st.write(f"**Toàn văn:** {full_text}")
+                        st.write(f"**Điểm tương đồng:** {score:.1%}")
                         
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if 'semantic_similarity' in response:
-                                st.metric("Tương đồng ngữ nghĩa", f"{response['semantic_similarity']:.1%}")
-                        with col2:
-                            if 'style_similarity' in response:
-                                st.metric("Tương đồng phong cách", f"{response['style_similarity']:.1%}")
+                        # Show additional metadata if available
+                        if 'semantic_score' in response or 'style_score' in response:
+                            st.write(f"**Điểm ngữ nghĩa:** {response.get('semantic_score', 0):.3f}")
+                            st.write(f"**Điểm phong cách:** {response.get('style_score', 0):.3f}")
+            else:
+                st.warning("Không tìm thấy mẫu tương tự trong cơ sở dữ liệu.")
             
             # Show generated analysis prompt
             with st.expander("🤖 Prompt phân tích được tạo"):
