@@ -19,14 +19,19 @@ from .prompt_builder import PromptBuilder
 class MBTIPipeline:
     """Main pipeline for MBTI personality analysis"""
     
-    def __init__(self, data_path: str = "mbti_dataset/mbti_responses_800.json"):
+    def __init__(self, data_path: str = None):
         """
         Initialize MBTI pipeline
         
         Args:
-            data_path: Path to MBTI dataset
+            data_path: Path to MBTI dataset. If None, will use default path relative to app.py
         """
-        self.data_path = data_path
+        if data_path is None:
+            # Default to mbti_dataset/mbti_responses_800.json in the project root
+            base_dir = Path(__file__).parent.parent  # Go up from src/ to project root
+            self.data_path = str(base_dir / "mbti_dataset" / "mbti_responses_800.json")
+        else:
+            self.data_path = data_path
         self.semantic_embedder = SemanticEmbedder()
         self.style_embedder = StyleEmbedder()
         self.semantic_retriever = VectorRetriever(embedding_dim=384)
@@ -45,22 +50,36 @@ class MBTIPipeline:
         """
         print("Initializing MBTI Pipeline...")
         
-        # Check if vector databases exist
-        semantic_db_path = "data/semantic_vectors.json"
-        style_db_path = "data/style_vectors.json"
+        # Create data directory in the same directory as the dataset
+        data_dir = Path(self.data_path).parent.parent / "data"
+        os.makedirs(data_dir, exist_ok=True)
         
-        if not force_rebuild and Path(semantic_db_path).exists() and Path(style_db_path).exists():
+        # Define vector database paths
+        semantic_db_path = data_dir / "semantic_vectors.json"
+        style_db_path = data_dir / "style_vectors.json"
+        
+        if not force_rebuild and semantic_db_path.exists() and style_db_path.exists():
             print("Loading existing vector databases...")
-            self.semantic_retriever.load_from_file(semantic_db_path)
-            self.style_retriever.load_from_file(style_db_path)
-        else:
+            try:
+                self.semantic_retriever.load_from_file(str(semantic_db_path))
+                self.style_retriever.load_from_file(str(style_db_path))
+                print("Successfully loaded vector databases.")
+            except Exception as e:
+                print(f"Error loading vector databases: {e}")
+                print("Rebuilding vector databases...")
+                force_rebuild = True
+        
+        if force_rebuild or not semantic_db_path.exists() or not style_db_path.exists():
             print("Building vector databases from dataset...")
             self._build_vector_databases()
             
             # Save vector databases
-            os.makedirs("data", exist_ok=True)
-            self.semantic_retriever.save_to_file(semantic_db_path)
-            self.style_retriever.save_to_file(style_db_path)
+            try:
+                self.semantic_retriever.save_to_file(str(semantic_db_path))
+                self.style_retriever.save_to_file(str(style_db_path))
+                print(f"Vector databases saved to {data_dir}")
+            except Exception as e:
+                print(f"Warning: Could not save vector databases: {e}")
         
         self.is_initialized = True
         print(f"Pipeline initialized successfully!")

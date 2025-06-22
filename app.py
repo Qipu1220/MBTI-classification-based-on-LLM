@@ -62,8 +62,11 @@ def initialize_session_state():
 def initialize_pipeline():
     """Initialize the MBTI pipeline"""
     try:
-        # Check if dataset exists
-        dataset_path = Path("mbti_dataset") / "mbti_responses_800.json"
+        # Check if dataset exists - use absolute path
+        base_dir = Path(__file__).parent
+        dataset_path = base_dir / "mbti_dataset" / "mbti_responses_800.json"
+        dataset_path = dataset_path.resolve()  # Convert to absolute path
+        
         if not dataset_path.exists():
             return False, f"Không tìm thấy tập dữ liệu MBTI tại {dataset_path}. Vui lòng đảm bảo file tồn tại."
         
