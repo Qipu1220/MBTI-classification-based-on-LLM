@@ -23,7 +23,33 @@ class VectorRetriever:
         self.vectors = []
         self.metadata = []
         self.index_map = {}
+         
+        # Ensure compatibility with older code that expects `.add_item` alias
+        # and `.search` method returning list of dicts
     
+    # --- Compatibility helper methods ---
+    def add_item(self, embedding: np.ndarray, metadata: Dict[str, Any]) -> int:
+        """Alias for add_document without requiring raw text."""
+        return self.add_document(text=metadata.get('chunk_text', ''), embedding=embedding, metadata=metadata)
+
+    def __len__(self) -> int:
+        """Return number of stored vectors (for len())."""
+        return len(self.vectors)
+
+    def search(self, query_embedding: np.ndarray, k: int = 5, include_metadata: bool = True):
+        """Search similar documents and return list of dicts expected by pipeline."""
+        results = self.search_similar(query_embedding, k=k)
+        formatted = []
+        for doc_id, score, meta in results:
+            item = {
+                'id': doc_id,
+                'score': score,
+                'metadata': meta if include_metadata else None
+            }
+            formatted.append(item)
+        return formatted
+
+    # --- Core API ---
     def add_document(self, text: str, embedding: np.ndarray, metadata: Dict[str, Any]) -> int:
         """
         Add document with embedding to the database
