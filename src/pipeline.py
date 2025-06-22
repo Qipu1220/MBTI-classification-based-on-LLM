@@ -110,8 +110,13 @@ class MBTIPipeline:
                 self.semantic_retriever.add_document(chunk, semantic_emb, metadata)
                 self.style_retriever.add_document(chunk, style_emb, metadata)
     
-    def analyze_text(self, query_text: str, k: int = 5, 
-                    semantic_weight: float = 0.7) -> Dict[str, Any]:
+    def analyze_text(
+        self,
+        query_text: str,
+        k: int = 5,
+        semantic_weight: float = 0.8,
+        use_llm: bool = True,
+    ) -> Dict[str, Any]:
         """
         Analyze text for MBTI personality traits
         
@@ -135,6 +140,10 @@ class MBTIPipeline:
         query_semantic_emb = self.semantic_embedder.create_embedding(processed_query)
         query_style_emb = self.style_embedder.create_embedding(processed_query)
         
+        # Adjust deduplicator weights based on provided semantic weight
+        self.deduplicator.semantic_weight = semantic_weight
+        self.deduplicator.style_weight = 1 - semantic_weight
+
         # Retrieve similar responses
         semantic_results = self.semantic_retriever.search_similar(
             query_semantic_emb, k=k*2, threshold=0.1
@@ -177,16 +186,33 @@ class MBTIPipeline:
         prompt = self.prompt_builder.build_analysis_prompt(
             processed_query, final_results
         )
-        
+
+        llm_response = None
+        parsed_response = None
+        if use_llm:
+            try:
+                from app.generate.gemini import generate_gemini_response
+
+                llm_response = generate_gemini_response(
+                    f"{self.prompt_builder.system_prompt}\n\n{prompt}"
+                )
+                parsed_response = self.prompt_builder.extract_mbti_from_response(
+                    llm_response
+                )
+            except Exception as e:
+                llm_response = f"LLM call failed: {e}"
+
         return {
             'query': query_text,
             'processed_query': processed_query,
             'similar_responses': final_results,
             'prompt': prompt,
+            'llm_response': llm_response,
+            'parsed_response': parsed_response,
             'query_embeddings': {
                 'semantic': query_semantic_emb.tolist(),
-                'style': query_style_emb.tolist()
-            }
+                'style': query_style_emb.tolist(),
+            },
         }
     
     def compare_texts(self, text1: str, text2: str) -> Dict[str, Any]:
