@@ -69,7 +69,17 @@ class MBTIPipeline:
     
     def _build_vector_databases(self):
         """Build vector databases from MBTI dataset"""
+        # Ensure data directory exists
+        os.makedirs('data', exist_ok=True)
+        
+        # Check if data directory is writable
+        if not os.access('data', os.W_OK):
+            raise PermissionError("Không có quyền ghi vào thư mục 'data'")
+        
         # Load dataset
+        if not os.path.exists(self.data_path):
+            raise FileNotFoundError(f"Không tìm thấy file dữ liệu: {self.data_path}")
+            
         with open(self.data_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
@@ -80,35 +90,44 @@ class MBTIPipeline:
                 print(f"Processed {i}/{len(data)} responses...")
             
             # Clean response
-            cleaned_response = clean_mbti_response(response)
-            text = cleaned_response.get('posts', '') or cleaned_response.get('text', '')
+            try:
+                cleaned_response = clean_mbti_response(response)
+                text = cleaned_response.get('posts', '') or cleaned_response.get('text', '')
+                
+                if not text:
+                    continue
+                
+                # Preprocess text
+                processed_text = preprocess_text(text)
+                
+                # Create chunks for long texts
+                chunks = chunk_text(processed_text, max_chunk_size=512)
+                
+                for chunk_idx, chunk in enumerate(chunks):
+                    # Create embeddings
+                    try:
+                        semantic_emb = self.semantic_embedder.create_embedding(chunk)
+                        style_emb = self.style_embedder.create_embedding(chunk)
+                    except Exception as e:
+                        print(f"Lỗi khi tạo embedding cho chunk {chunk_idx} của response {i}: {str(e)}")
+                        continue
+                    
+                    # Prepare metadata
+                    metadata = {
+                        'original_index': i,
+                        'chunk_index': chunk_idx,
+                        'mbti_type': cleaned_response.get('type', ''),
+                        'full_text': text,
+                        'chunk_text': chunk
+                    }
+                    
+                    # Add to retrievers
+                    self.semantic_retriever.add_item(semantic_emb, metadata)
+                    self.style_retriever.add_item(style_emb, metadata)
             
-            if not text:
+            except Exception as e:
+                print(f"Lỗi khi xử lý response {i}: {str(e)}")
                 continue
-            
-            # Preprocess text
-            processed_text = preprocess_text(text)
-            
-            # Create chunks for long texts
-            chunks = chunk_text(processed_text, max_chunk_size=512)
-            
-            for chunk_idx, chunk in enumerate(chunks):
-                # Create embeddings
-                semantic_emb = self.semantic_embedder.create_embedding(chunk)
-                style_emb = self.style_embedder.create_embedding(chunk)
-                
-                # Prepare metadata
-                metadata = {
-                    'original_index': i,
-                    'chunk_index': chunk_idx,
-                    'mbti_type': cleaned_response.get('type', ''),
-                    'full_text': text,
-                    'chunk_text': chunk
-                }
-                
-                # Add to vector databases
-                self.semantic_retriever.add_document(chunk, semantic_emb, metadata)
-                self.style_retriever.add_document(chunk, style_emb, metadata)
     
     def analyze_text(
         self,

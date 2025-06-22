@@ -62,38 +62,28 @@ def initialize_session_state():
 def initialize_pipeline():
     """Initialize the MBTI pipeline"""
     try:
-        with st.spinner("Initializing MBTI Pipeline..."):
-            # Check if dataset exists
-            dataset_path = Path("mbti_dataset") / "mbti_responses_800.json"
-            if not dataset_path.exists():
-                st.error(f"MBTI dataset not found at {dataset_path}. Please ensure the file exists.")
-                return False
-            
-            # Initialize pipeline
-            pipeline = MBTIPipeline()
-            pipeline.initialize()
-            
-            st.session_state.pipeline = pipeline
-            st.session_state.pipeline_initialized = True
-            
-            # Show pipeline stats
-            stats = pipeline.get_pipeline_stats()
-            st.success(f"Pipeline initialized successfully!")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Status", stats['status'])
-            with col2:
-                st.metric("Semantic DB", f"{stats['semantic_db']['total_documents']} docs")
-            with col3:
-                st.metric("Style DB", f"{stats['style_db']['total_documents']} docs")
-            
-            return True
-            
+        # Check if dataset exists
+        dataset_path = Path("mbti_dataset") / "mbti_responses_800.json"
+        if not dataset_path.exists():
+            return False, f"Không tìm thấy tập dữ liệu MBTI tại {dataset_path}. Vui lòng đảm bảo file tồn tại."
+        
+        # Initialize pipeline
+        pipeline = MBTIPipeline()
+        pipeline.initialize()
+        
+        st.session_state.pipeline = pipeline
+        st.session_state.pipeline_initialized = True
+        
+        # Get pipeline stats
+        stats = pipeline.get_pipeline_stats()
+        
+        # Store stats in session state for later use
+        st.session_state.pipeline_stats = stats
+        
+        return True, ""
+        
     except Exception as e:
-        st.error(f"Failed to initialize pipeline: {e}")
-        st.info("Please ensure all required packages are installed and the MBTI dataset exists.")
-        return False
+        return False, f"Lỗi khi khởi tạo pipeline: {str(e)}"
 
 def format_responses_for_analysis(responses: Dict[str, str]) -> str:
     """Format survey responses for MBTI analysis"""
@@ -515,14 +505,37 @@ def main():
     
     # App header
     st.title("🧠 MBTI Personality Analyzer")
-    st.markdown("*Khám phá tính cách của bạn thông qua khảo sát 15 câu hỏi và phân tích văn bản nâng cao*")
+    st.markdown("*Khám phá tính cách của bạn thông qua khảo sát 15 câu hỏi*")
     
-    # Show only the survey interface
+    # Initialize pipeline if not already done
+    if not st.session_state.pipeline_initialized:
+        with st.spinner("Đang khởi tạo hệ thống phân tích..."):
+            success, message = initialize_pipeline()
+            if not success:
+                st.error(f"Lỗi: {message}")
+                st.info("Vui lòng kiểm tra lại đường dẫn đến tập dữ liệu và thử lại.")
+                return
+        
+        # Show pipeline stats if initialization was successful
+        if 'pipeline_stats' in st.session_state:
+            stats = st.session_state.pipeline_stats
+            st.success("✅ Hệ thống đã sẵn sàng!")
+            
+            # Show pipeline stats in columns
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Trạng thái", "Đã sẵn sàng")
+            with col2:
+                st.metric("Cơ sở dữ liệu ngữ nghĩa", f"{stats['semantic_db']['total_documents']} mẫu")
+            with col3:
+                st.metric("Cơ sở dữ liệu phong cách", f"{stats['style_db']['total_documents']} mẫu")
+    
+    # Show the survey interface
     survey_interface()
     
     # Footer
     st.sidebar.markdown("---")
-    st.sidebar.markdown("**MBTI Survey & Analysis**")
+    st.sidebar.markdown("**MBTI Personality Survey**")
     st.sidebar.markdown("Built with Streamlit & Python")
 
 if __name__ == "__main__":
