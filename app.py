@@ -64,8 +64,9 @@ def initialize_pipeline():
     try:
         with st.spinner("Initializing MBTI Pipeline..."):
             # Check if dataset exists
-            if not Path("mbti_dataset/mbti_responses_800.json").exists():
-                st.error("MBTI dataset not found. Please ensure mbti_dataset/mbti_responses_800.json exists.")
+            dataset_path = Path("mbti_dataset") / "mbti_responses_800.json"
+            if not dataset_path.exists():
+                st.error(f"MBTI dataset not found at {dataset_path}. Please ensure the file exists.")
                 return False
             
             # Initialize pipeline
@@ -516,30 +517,8 @@ def main():
     st.title("🧠 MBTI Personality Analyzer")
     st.markdown("*Khám phá tính cách của bạn thông qua khảo sát 15 câu hỏi và phân tích văn bản nâng cao*")
     
-    # Sidebar navigation
-    st.sidebar.title("Navigation")
-    page = st.sidebar.selectbox(
-        "Choose a page:",
-        ["MBTI Survey", "Text Analysis", "Text Comparison", "Analysis History", "Settings"]
-    )
-    
-    # Auto-initialize pipeline on first run
-    if not st.session_state.pipeline_initialized and page in ["MBTI Survey", "Text Analysis", "Text Comparison"]:
-        st.info("Initializing pipeline for first use...")
-        if initialize_pipeline():
-            st.rerun()
-    
-    # Route to appropriate interface
-    if page == "MBTI Survey":
-        survey_interface()
-    elif page == "Text Analysis":
-        analyze_text_interface()
-    elif page == "Text Comparison":
-        comparison_interface()
-    elif page == "Analysis History":
-        history_interface()
-    elif page == "Settings":
-        settings_interface()
+    # Show only the survey interface
+    survey_interface()
     
     # Footer
     st.sidebar.markdown("---")
