@@ -56,6 +56,15 @@ class MBTIPipeline:
         self.data_dir = Path(data_dir)
         self.enable_caching = enable_caching
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
+        # Define MBTI types list early to avoid attribute errors during initialization
+        self.mbti_types = [
+            'INTJ', 'INTP', 'ENTJ', 'ENTP',
+            'INFJ', 'INFP', 'ENFJ', 'ENFP',
+            'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ',
+            'ISTP', 'ISFP', 'ESTP', 'ESFP'
+        ]
+        # Initialize empty vector databases dict; will be populated later
+        self.vector_dbs: Dict[str, Dict[str, Any]] = {}
         
         # Configure logging
         self.logger = logging.getLogger("MBTIPipeline")
@@ -187,24 +196,7 @@ class MBTIPipeline:
             error_msg = f"Failed to get embedding for text: {str(e)}"
             self.logger.error(error_msg, exc_info=True)
             raise RuntimeError(error_msg) from e
-            self.style_embedder = StyleEmbedder()
-            self.vector_dbs = {}
-            self.mbti_types = ['INTJ', 'INTP', 'ENTJ', 'ENTP', 
-                            'INFJ', 'INFP', 'ENFJ', 'ENFP',
-                            'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ',
-                            'ISTP', 'ISFP', 'ESTP', 'ESFP']
-            
-            # Verify data directory exists
-            if not os.path.exists(self.data_dir):
-                raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
-                
-            # Build vector databases for each MBTI type
-            self._build_vector_databases()
-            logger.info("MBTIPipeline initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize MBTIPipeline: {str(e)}")
-            raise
+
     
     def initialize(self, force_rebuild: bool = False):
         """
