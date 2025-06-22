@@ -83,8 +83,8 @@ def initialize_pipeline():
             return False, f"Không tìm thấy tập dữ liệu MBTI tại {dataset_path}. Vui lòng đảm bảo file tồn tại."
         
         # Initialize pipeline
-        pipeline = MBTIPipeline()
-        pipeline.initialize()
+        pipeline = MBTIPipeline(data_dir=str(dataset_path.parent))
+        # pipeline.initialize()  # Initialization now handled in constructor
         
         st.session_state.pipeline = pipeline
         st.session_state.pipeline_initialized = True
