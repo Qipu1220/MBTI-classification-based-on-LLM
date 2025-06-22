@@ -158,16 +158,54 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
                 k=10,  # Get more examples for better analysis
                 semantic_weight=0.7
             )
-        
-        return result
+            
+            # Map the result keys to match what the UI expects
+            mapped_result = {
+                'analysis': {
+                    'similar_responses': result.get('top_similar', []),
+                    'summary': result.get('analysis', {}).get('summary', 'No analysis available')
+                },
+                'predicted_type': predict_mbti_type(result)
+            }
+            
+            # Add any additional fields that might be needed
+            if 'query_text' in result:
+                mapped_result['query_text'] = result['query_text']
+            if 'processed_text' in result:
+                mapped_result['processed_text'] = result['processed_text']
+            
+            return mapped_result
+            
     except Exception as e:
         st.error(f"Analysis failed: {e}")
         return None
 
 def predict_mbti_type(analysis_result: Dict) -> str:
     """Predict MBTI type based on analysis results"""
-    if not analysis_result or not analysis_result.get('similar_responses'):
+    if not analysis_result:
         return "Unknown"
+        
+    # Check both old and new result structures
+    similar_responses = analysis_result.get('similar_responses') or analysis_result.get('top_similar', [])
+    if not similar_responses:
+        return "Unknown"
+        
+    # Count MBTI types from similar responses
+    type_counter = {}
+    for response in similar_responses:
+        mbti_type = response.get('mbti_type')
+        if mbti_type:
+            score = response.get('final_score', 1.0)  # Default score of 1.0 if not provided
+            if mbti_type in type_counter:
+                type_counter[mbti_type] += score
+            else:
+                type_counter[mbti_type] = score
+    
+    # Return the most common type, or 'Unknown' if no types found
+    if not type_counter:
+        return "Unknown"
+        
+    return max(type_counter.items(), key=lambda x: x[1])[0]
     
     # Count MBTI types from similar responses
     mbti_counts = {}
