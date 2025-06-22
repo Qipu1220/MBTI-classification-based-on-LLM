@@ -810,12 +810,25 @@ class MBTIPipeline:
         if not self.is_initialized:
             return {'status': 'not_initialized'}
         
+        # Get semantic DB stats
+        semantic_stats = self.semantic_retriever.get_stats() if hasattr(self.semantic_retriever, 'get_stats') else {'total_documents': 0}
+        
+        # Initialize style DB stats
+        style_stats = {
+            'total_documents': 0,
+            'dimensions': 0
+        }
+        
+        # If style retriever exists and has get_stats method, use it
+        if hasattr(self, 'style_retriever') and hasattr(self.style_retriever, 'get_stats'):
+            style_stats = self.style_retriever.get_stats()
+        
         return {
             'status': 'initialized',
-            'semantic_db': self.semantic_retriever.get_stats(),
-            
+            'semantic_db': semantic_stats,
+            'style_db': style_stats,
             'deduplicator_weights': {
-                'semantic': self.deduplicator.semantic_weight,
-                'style': self.deduplicator.style_weight
+                'semantic': getattr(self.deduplicator, 'semantic_weight', 0.0) if hasattr(self, 'deduplicator') else 0.0,
+                'style': getattr(self.deduplicator, 'style_weight', 0.0) if hasattr(self, 'deduplicator') else 0.0
             }
         }
