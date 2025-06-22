@@ -135,11 +135,15 @@ def initialize_pipeline():
         return False, error_msg
 
 def format_responses_for_analysis(responses: Dict[str, str]) -> str:
-    """Format survey responses for MBTI analysis"""
-    combined_text = ""
+    """Format survey responses for MBTI analysis to match the dataset format"""
+    formatted_responses = []
     for i, (question, answer) in enumerate(responses.items(), 1):
-        combined_text += f"Câu {i}: {question}\nTrả lời: {answer}\n\n"
-    return combined_text.strip()
+        # Format each question-answer pair to match the dataset format
+        formatted = f"Q{i}: {question}\nAns: {answer}"
+        formatted_responses.append(formatted)
+    
+    # Join all responses with newlines to match the dataset format
+    return "\n".join(formatted_responses)
 
 def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
     """Analyze MBTI survey responses using the pipeline"""
@@ -147,14 +151,14 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
         st.error("Pipeline not initialized. Please initialize it first.")
         return None
     
-    # Format responses for analysis
-    combined_text = format_responses_for_analysis(responses)
+    # Format responses to match the dataset format
+    formatted_responses = format_responses_for_analysis(responses)
     
     try:
         with st.spinner("Analyzing your MBTI personality..."):
-            # Use pipeline to analyze the combined responses
+            # Use pipeline to analyze the formatted responses
             result = st.session_state.pipeline.analyze_text(
-                combined_text, 
+                formatted_responses, 
                 k=10,  # Get more examples for better analysis
                 semantic_weight=0.7
             )
@@ -164,7 +168,8 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
                 'analysis': {
                     'similar_responses': result.get('top_similar', []),
                     'summary': result.get('analysis', {}).get('summary', 'No analysis available'),
-                    'prompt': result.get('prompt', 'No prompt available')
+                    'prompt': result.get('prompt', 'No prompt available'),
+                    'formatted_responses': formatted_responses  # Include the formatted responses for reference
                 },
                 'predicted_type': predict_mbti_type(result)
             }
@@ -179,6 +184,10 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
             
     except Exception as e:
         st.error(f"Analysis failed: {e}")
+        st.error(f"Error details: {str(e)}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
+        return None
         return None
 
 def predict_mbti_type(analysis_result: Dict) -> str:
@@ -259,25 +268,41 @@ def survey_interface():
                 if empty_responses:
                     st.error(f"Vui lòng trả lời đầy đủ các câu hỏi: {', '.join(map(str, empty_responses))}")
                 else:
-                    # Save responses
-                    st.session_state.survey_responses = {f"q{i+1}": response for i, (_, response) in enumerate(responses.items())}
-                    
-                    # Analyze responses
-                    analysis_result = analyze_mbti_responses(responses)
-                    
-                    if analysis_result:
-                        # Predict MBTI type
-                        predicted_mbti = predict_mbti_type(analysis_result)
-                        
-                        # Save results
-                        st.session_state.mbti_result = {
-                            'predicted_type': predicted_mbti,
-                            'analysis': analysis_result,
-                            'timestamp': time.time()
+                    try:
+                        # Save responses in both formats for backward compatibility
+                        st.session_state.survey_responses = {
+                            f"q{i+1}": response for i, (_, response) in enumerate(responses.items())
                         }
                         
-                        st.session_state.survey_completed = True
-                        st.rerun()
+                        # Also save the question-answer pairs for analysis
+                        st.session_state.qa_responses = responses
+                        
+                        # Analyze responses
+                        analysis_result = analyze_mbti_responses(responses)
+                        
+                        if analysis_result:
+                            # Predict MBTI type
+                            predicted_mbti = predict_mbti_type(analysis_result)
+                            
+                            # Save results
+                            st.session_state.mbti_result = {
+                                'predicted_type': predicted_mbti,
+                                'analysis': analysis_result,
+                                'formatted_responses': analysis_result.get('analysis', {}).get('formatted_responses', ''),
+                                'timestamp': time.time()
+                            }
+                            
+                            # Debug: Show the formatted responses being sent for analysis
+                            st.session_state.debug_formatted_responses = analysis_result.get('analysis', {}).get('formatted_responses', '')
+                            
+                    except Exception as e:
+                        st.error(f"An error occurred while processing your responses: {str(e)}")
+                        import traceback
+                        st.error(f"Error details: {traceback.format_exc()}")
+                        st.stop()
+                    
+                    st.session_state.survey_completed = True
+                    st.rerun()
     
     else:
         # Show results
