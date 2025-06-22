@@ -426,30 +426,18 @@ def survey_interface():
                         help="Mức độ phù hợp với các mẫu tương tự trong dữ liệu"
                     )
             
-            # Show detailed analysis
-            st.subheader("📊 Phân tích chi tiết")
+            # Show basic information about the analysis
+            st.write("Phân tích đã hoàn thành dựa trên các phản hồi của bạn.")
             
+            # Show confidence based on top matches if we have similar responses
             if similar_responses:
-                st.write("**Các mẫu tương tự nhất với phản hồi của bạn:**")
-                
-                for i, response in enumerate(similar_responses[:5], 1):
-                    # Safely get response data with defaults
-                    mbti_type = response.get('mbti_type', 'Unknown')
-                    score = response.get('final_score', response.get('hybrid_score', 0))
-                    text = response.get('text', response.get('chunk_text', 'No text available'))
-                    full_text = response.get('full_text', text)  # Fallback to text if full_text not available
-                    
-                    with st.expander(f"Mẫu {i}: MBTI {mbti_type} (Độ phù hợp: {score:.1%})"):
-                        st.write(f"**Nội dung:** {text}")
-                        st.write(f"**Toàn văn:** {full_text}")
-                        st.write(f"**Điểm tương đồng:** {score:.1%}")
-                        
-                        # Show additional metadata if available
-                        if 'semantic_score' in response or 'style_score' in response:
-                            st.write(f"**Điểm ngữ nghĩa:** {response.get('semantic_score', 0):.3f}")
-                            st.write(f"**Điểm phong cách:** {response.get('style_score', 0):.3f}")
-            else:
-                st.warning("Không tìm thấy mẫu tương tự trong cơ sở dữ liệu.")
+                # Use final_score if available, otherwise use hybrid_score, default to 0
+                top_scores = [
+                    r.get('final_score', r.get('hybrid_score', 0)) 
+                    for r in similar_responses[:3]
+                ]
+                avg_confidence = sum(top_scores) / len(top_scores) if top_scores else 0
+                st.write(f"**Độ tin cậy phân tích:** {avg_confidence:.1%}")
             
             # Show generated analysis prompt if available
             prompt = result.get('analysis', {}).get('prompt')
@@ -730,19 +718,8 @@ def main():
                 st.info("Vui lòng kiểm tra lại đường dẫn đến tập dữ liệu và thử lại.")
                 return
         
-        # Show pipeline stats if initialization was successful
-        if 'pipeline_stats' in st.session_state:
-            stats = st.session_state.pipeline_stats
-            st.success("✅ Hệ thống đã sẵn sàng!")
-            
-            # Show pipeline stats in columns
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Trạng thái", "Đã sẵn sàng")
-            with col2:
-                st.metric("Cơ sở dữ liệu ngữ nghĩa", f"{stats['semantic_db']['total_documents']} mẫu")
-            with col3:
-                st.metric("Cơ sở dữ liệu phong cách", f"{stats['style_db']['total_documents']} mẫu")
+        # Show success message if initialization was successful
+        st.success("✅ Hệ thống đã sẵn sàng!")
     
     # Show the survey interface
     survey_interface()
