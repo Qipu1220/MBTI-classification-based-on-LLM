@@ -547,4 +547,12 @@ def main():
     st.sidebar.markdown("Built with Streamlit & Python")
 
 if __name__ == "__main__":
-    main()
+    # Allow running the Streamlit app via `python app.py`
+    import os
+    import sys
+    import subprocess
+    if os.getenv("RUNNING_STREAMLIT_APP") != "true":
+        os.environ["RUNNING_STREAMLIT_APP"] = "true"
+        subprocess.run(["streamlit", "run", sys.argv[0]])
+    else:
+        main()
