@@ -1,54 +1,210 @@
 """
 Main pipeline module
-Orchestrates the full end-to-end MBTI analysis flow
+Orchestrates the full end-to-end MBTI analysis flow with performance optimizations
 """
 
 import json
 import os
-from typing import List, Dict, Any, Optional, Tuple
+import re
+import time
+import torch
+import logging
+import numpy as np
+from functools import lru_cache
+from typing import List, Dict, Any, Optional, Tuple, Union, Callable
 from pathlib import Path
+from tqdm import tqdm
 
-from .preprocessing import preprocess_text, chunk_text, clean_mbti_response
-from .embedding import SemanticEmbedder, create_semantic_embedding
-from .style_embedding import StyleEmbedder, create_style_embedding
-from .retrieval import VectorRetriever
-from .deduplication import ResponseDeduplicator, deduplicate_responses
-from .prompt_builder import PromptBuilder
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('mbti_analysis.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+try:
+    from .preprocessing import preprocess_text, chunk_text, clean_mbti_response
+    from .embedding import SemanticEmbedder, create_semantic_embedding
+    from .style_embedding import StyleEmbedder, create_style_embedding
+    from .retrieval import VectorRetriever
+    from .deduplication import ResponseDeduplicator, deduplicate_responses
+    from .prompt_builder import PromptBuilder
+except ImportError as e:
+    logger.error(f"Failed to import required modules: {e}")
+    raise
 
 
 class MBTIPipeline:
     """Main pipeline for MBTI personality analysis"""
     
-    def __init__(self, data_path: str = None, semantic_model: str = "all-MiniLM-L6-v2"):
+    def __init__(self, data_dir: str, semantic_model_name: str = "all-MiniLM-L6-v2", 
+                 device: Optional[str] = None, enable_caching: bool = True):
         """
-        Initialize MBTI pipeline
+        Initialize MBTI analysis pipeline with performance optimizations
         
         Args:
-            data_path: Path to MBTI dataset. If None, will use default path relative to app.py
-            semantic_model: Name of the semantic embedding model to use
+            data_dir: Directory containing MBTI dataset files
+            semantic_model_name: Name of the semantic embedding model to use
+            device: Device to run the model on ('cuda' or 'cpu'). If None, will auto-detect.
+            enable_caching: Whether to enable caching for embeddings and intermediate results
         """
-        if data_path is None:
-            # Default to mbti_dataset/mbti_responses_800.json in the project root
-            base_dir = Path(__file__).parent.parent  # Go up from src/ to project root
-            self.data_path = str(base_dir / "mbti_dataset" / "mbti_responses_800.json")
-        else:
-            self.data_path = data_path
+        start_time = time.time()
+        self.data_dir = Path(data_dir)
+        self.enable_caching = enable_caching
+        self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Configure logging
+        self.logger = logging.getLogger("MBTIPipeline")
+        self.logger.setLevel(logging.INFO)
+        
+        # Add file handler if not already added
+        if not any(isinstance(h, logging.FileHandler) for h in self.logger.handlers):
+            file_handler = logging.FileHandler('mbti_analysis.log')
+            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            self.logger.addHandler(file_handler)
+        
+        self.logger.info(f"Initializing MBTIPipeline on device: {self.device}")
+        
+        # Initialize components with error handling
+        try:
+            # Warm up GPU if available
+            if 'cuda' in str(self.device):
+                self._warm_up_gpu()
+                
+            # Initialize components
+            self._initialize_components(semantic_model_name)
             
-        # Initialize embedders with configurable models
-        self.semantic_embedder = SemanticEmbedder(model_name=semantic_model)
-        self.style_embedder = StyleEmbedder()
+            # Build vector databases
+            self._build_vector_databases()
+            
+            init_time = time.time() - start_time
+            self.logger.info(f"Pipeline initialized in {init_time:.2f} seconds")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize pipeline: {str(e)}", exc_info=True)
+            raise
+    
+    def _warm_up_gpu(self):
+        """Warm up the GPU with a small computation."""
+        try:
+            if 'cuda' in str(self.device):
+                # Small tensor operation to initialize CUDA context
+                x = torch.randn(10, 10).to(self.device)
+                y = torch.randn(10, 10).to(self.device)
+                _ = torch.matmul(x, y)
+                self.logger.debug("GPU warmup completed")
+        except Exception as e:
+            self.logger.warning(f"GPU warmup failed: {str(e)}")
+    
+    def _initialize_components(self, semantic_model_name: str):
+        """Initialize all pipeline components with error handling."""
+        try:
+            # Initialize embedders with error handling
+            self.logger.info(f"Initializing semantic embedder with model: {semantic_model_name}")
+            try:
+                self.semantic_embedder = SemanticEmbedder(
+                    model_name=semantic_model_name,
+                    device=self.device
+                )
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize semantic embedder: {str(e)}")
+            
+            self.logger.info("Initializing style embedder")
+            try:
+                self.style_embedder = StyleEmbedder()
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize style embedder: {str(e)}")
+            
+            # Initialize other components
+            self.retriever = VectorRetriever()
+            self.deduplicator = ResponseDeduplicator()
+            self.prompt_builder = PromptBuilder()
+            
+            # Initialize caches
+            self._init_caches()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize components: {str(e)}", exc_info=True)
+            raise
+    
+    def _init_caches(self) -> None:
+        """Initialize caching mechanisms with automatic memory management."""
+        self._embedding_cache = {}
+        self._style_cache = {}
+        self._similarity_cache = {}
         
-        # Initialize retrievers with appropriate dimensions
-        self.semantic_retriever = VectorRetriever(embedding_dim=384)  # Dimension for all-MiniLM-L6-v2
-        self.style_retriever = VectorRetriever(embedding_dim=9)  # Style features count
+        # Configure cache sizes based on available memory
+        self.max_cache_size = 1000  # Default cache size
+        try:
+            if 'cuda' in str(self.device):
+                # Adjust cache size based on available GPU memory
+                total_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # in GB
+                self.max_cache_size = min(5000, int(total_mem * 100))  # ~100MB per GB of VRAM
+                self.logger.debug(f"GPU detected, setting cache size to {self.max_cache_size}")
+            else:
+                # For CPU, use a more conservative cache size
+                self.max_cache_size = 1000
+                self.logger.debug("Using CPU, setting default cache size")
+                
+            self.logger.info(f"Initialized caches with max size: {self.max_cache_size}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to detect GPU, using default cache size. Error: {str(e)}")
+    
+    @lru_cache(maxsize=1000)
+    def _get_cached_embedding(self, text: str) -> np.ndarray:
+        """
+        Get or compute semantic embedding with caching.
         
-        # Initialize other components
-        self.deduplicator = ResponseDeduplicator()
-        self.prompt_builder = PromptBuilder()
-        
-        # Initialize state
-        self.is_initialized = False
-        self.embedding_model = semantic_model
+        Args:
+            text: Input text to get embedding for
+            
+        Returns:
+            np.ndarray: The embedding vector
+            
+        Raises:
+            RuntimeError: If embedding generation fails
+        """
+        try:
+            # Check cache first
+            if text in self._embedding_cache:
+                return self._embedding_cache[text]
+                
+            # Generate new embedding
+            embedding = self.semantic_embedder.embed_text(text)
+            
+            # Update cache if enabled and not full
+            if self.enable_caching and len(self._embedding_cache) < self.max_cache_size:
+                self._embedding_cache[text] = embedding
+                
+            return embedding
+            
+        except Exception as e:
+            error_msg = f"Failed to get embedding for text: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            raise RuntimeError(error_msg) from e
+            self.style_embedder = StyleEmbedder()
+            self.vector_dbs = {}
+            self.mbti_types = ['INTJ', 'INTP', 'ENTJ', 'ENTP', 
+                            'INFJ', 'INFP', 'ENFJ', 'ENFP',
+                            'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ',
+                            'ISTP', 'ISFP', 'ESTP', 'ESFP']
+            
+            # Verify data directory exists
+            if not os.path.exists(self.data_dir):
+                raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
+                
+            # Build vector databases for each MBTI type
+            self._build_vector_databases()
+            logger.info("MBTIPipeline initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize MBTIPipeline: {str(e)}")
+            raise
     
     def initialize(self, force_rebuild: bool = False):
         """
@@ -60,7 +216,7 @@ class MBTIPipeline:
         print("Initializing MBTI Pipeline...")
         
         # Create data directory in the same directory as the dataset
-        data_dir = Path(self.data_path).parent.parent / "data"
+        data_dir = Path(self.data_dir).parent / "data"
         os.makedirs(data_dir, exist_ok=True)
         
         # Define vector database paths
@@ -105,10 +261,10 @@ class MBTIPipeline:
             raise PermissionError("Không có quyền ghi vào thư mục 'data'")
         
         # Load dataset
-        if not os.path.exists(self.data_path):
-            raise FileNotFoundError(f"Không tìm thấy file dữ liệu: {self.data_path}")
+        if not os.path.exists(self.data_dir):
+            raise FileNotFoundError(f"Không tìm thấy file dữ liệu: {self.data_dir}")
             
-        with open(self.data_path, 'r', encoding='utf-8') as f:
+        with open(self.data_dir, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         print(f"Processing {len(data)} MBTI responses...")
@@ -169,51 +325,279 @@ class MBTIPipeline:
                 continue
     
     def _extract_style_features(self, text: str) -> List[float]:
-        """Extract style features from text"""
-        features = []
+        """
+        Extract style features from text using the StyleEmbedder
         
-        # Sentence length features
-        sentences = re.split(r'[.!?]+', text)
-        avg_sentence_len = np.mean([len(s.split()) for s in sentences]) if sentences else 0
-        features.append(avg_sentence_len)
-        
-        # Emoji features (count different types of emojis)
-        emoji_pattern = re.compile(r'[\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\U0001F300-\U0001F5FF\U00002694-\U00002697\U00002699\U0000269B\U0000269C\U000026A0\U000026A1\U000026A3-\U000026A9\U000026AA\U000026AB\U000026B0-\U000026B1\U000026BD-\U000026BF\U000026C4-\U000026C5\U000026C8\U000026CE\U000026CF\U000026D1\U000026D3\U000026D4\U000026E9-\U000026EA\U000026F0-\U000026F5\U000026F7-\U000026FA\U000026FD\U0001F170-\U0001F171\U0001F17E-\U0001F17F\U0001F18E\U0001F191-\U0001F19A\U0001F201-\U0001F202\U0001F21A\U0001F22F\U0001F232-\U0001F23A\U0001F250\U0001F251\U0001F300-\U0001F5FF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U0001FB00-\U0001FBFF\U0001FCD0-\U0001FCE0\U0001FCE1-\U0001FCFF\U0001FD00-\U0001FDFF\U0001FE00-\U0001FEFF\U0001FF00-\U0001FF60\U0001FF61-\U0001FF65]')
-        emojis = emoji_pattern.findall(text)
-        features.append(len(emojis))
-        
-        # POS ratio features
-        from nltk import pos_tag, word_tokenize
-        try:
-            tokens = word_tokenize(text)
-            tags = pos_tag(tokens)
+        Args:
+            text: Input text
             
-            # Count different POS tags
-            pos_counts = {
-                'NOUN': len([t for t in tags if t[1].startswith('NN')]),
-                'VERB': len([t for t in tags if t[1].startswith('VB')]),
-                'ADJ': len([t for t in tags if t[1].startswith('JJ')]),
-                'ADV': len([t for t in tags if t[1].startswith('RB')])
+        Returns:
+            List of 9 style features (all zeros if extraction fails)
+        """
+        try:
+            # Use the StyleEmbedder to get features
+            features_dict = self.style_embedder.extract_style_features(text)
+            
+            # Ensure we have all expected features in the correct order
+            expected_features = [
+                'avg_sentence_length', 'avg_word_length', 'punctuation_ratio',
+                'question_ratio', 'exclamation_ratio', 'caps_ratio',
+                'first_person_ratio', 'emotion_words_ratio', 'complexity_score'
+            ]
+            
+            # Extract features in the expected order, with fallback to 0.0
+            features = [float(features_dict.get(feat, 0.0)) for feat in expected_features]
+            
+            # Ensure we have exactly 9 features
+            if len(features) != 9:
+                logger.warning(f"Expected 9 style features, got {len(features)}")
+                features = features[:9] + [0.0] * (9 - len(features))
+                
+            return features
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in _extract_style_features: {str(e)}")
+            return [0.0] * 9
+    
+    def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
+        """
+        Compute cosine similarity between two vectors
+        
+        Args:
+            a: First vector
+            b: Second vector
+            
+        Returns:
+            Cosine similarity between a and b
+        """
+        try:
+            # Ensure inputs are numpy arrays
+            a = np.asarray(a, dtype=np.float32)
+            b = np.asarray(b, dtype=np.float32)
+            
+            # Handle zero vectors
+            norm_a = np.linalg.norm(a)
+            norm_b = np.linalg.norm(b)
+            
+            if norm_a == 0 or norm_b == 0:
+                return 0.0
+                
+            # Compute cosine similarity
+            similarity = np.dot(a, b) / (norm_a * norm_b)
+            
+            # Ensure the result is within valid range [-1, 1]
+            return float(np.clip(similarity, -1.0, 1.0))
+            
+        except Exception as e:
+            logger.error(f"Error in _cosine_similarity: {str(e)}")
+            return 0.0
+    
+    def _build_vector_databases(self) -> None:
+        """
+        Build vector databases for each MBTI type from the dataset
+        """
+        try:
+            logger.info("Building vector databases...")
+            
+            # Load and process dataset
+            data_files = [f for f in os.listdir(self.data_dir) 
+                         if f.endswith('.json') and 'mbti' in f.lower()]
+            
+            if not data_files:
+                raise FileNotFoundError(f"No MBTI dataset files found in {self.data_dir}")
+            
+            # Process each MBTI type
+            for mbti_type in self.mbti_types:
+                self.vector_dbs[mbti_type] = {}
+                
+                # Find files for this MBTI type
+                type_files = [f for f in data_files if mbti_type.lower() in f.lower()]
+                
+                for file in type_files:
+                    try:
+                        file_path = os.path.join(self.data_dir, file)
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        # Process each text in the file
+                        for i, text in enumerate(data):
+                            try:
+                                if not text or not isinstance(text, str):
+                                    continue
+                                    
+                                # Create semantic embedding
+                                semantic_emb = self.semantic_embedder.create_embedding(text)
+                                
+                                # Get style features
+                                style_features = self._extract_style_features(text)
+                                
+                                # Combine features
+                                combined_emb = np.concatenate([
+                                    semantic_emb,
+                                    np.array(style_features, dtype=np.float32)
+                                ])
+                                
+                                # Store with a unique key
+                                key = f"{mbti_type}_{file}_{i}"
+                                self.vector_dbs[mbti_type][key] = combined_emb
+                                
+                            except Exception as e:
+                                logger.warning(f"Error processing text {i} in {file}: {str(e)}")
+                                continue
+                                
+                    except Exception as e:
+                        logger.error(f"Error loading {file}: {str(e)}")
+                        continue
+            
+            # Log statistics
+            total_vectors = sum(len(vectors) for vectors in self.vector_dbs.values())
+            logger.info(f"Built vector databases with {total_vectors} total vectors across {len(self.vector_dbs)} MBTI types")
+            
+        except Exception as e:
+            logger.error(f"Error in _build_vector_databases: {str(e)}")
+            raise
+    
+    def analyze_text(self, text: str, top_k: int = 3) -> Dict[str, Any]:
+        """
+        Analyze text to predict MBTI type with comprehensive error handling
+        
+        Args:
+            text: Input text to analyze
+            top_k: Number of top MBTI types to return (1-16)
+            
+        Returns:
+            Dictionary containing analysis results with error information if any
+        """
+        # Input validation
+        if not text or not isinstance(text, str) or not text.strip():
+            error_msg = "Invalid input text"
+            logger.warning(error_msg)
+            return {
+                'error': error_msg,
+                'top_matches': [],
+                'style_analysis': {},
+                'success': False
             }
             
-            total_words = len(tokens)
-            if total_words > 0:
-                features.extend([
-                    pos_counts['NOUN'] / total_words,
-                    pos_counts['VERB'] / total_words,
-                    pos_counts['ADJ'] / total_words,
-                    pos_counts['ADV'] / total_words
+        # Ensure top_k is within valid range
+        top_k = max(1, min(top_k, len(self.mbti_types)))
+        
+        try:
+            logger.info(f"Analyzing text (length: {len(text)} chars)")
+            
+            # Get semantic embedding
+            try:
+                semantic_emb = self.semantic_embedder.create_embedding(text)
+                if not isinstance(semantic_emb, np.ndarray) or semantic_emb.size == 0:
+                    raise ValueError("Invalid semantic embedding returned")
+            except Exception as e:
+                logger.error(f"Error creating semantic embedding: {str(e)}")
+                semantic_emb = np.zeros(384)  # Default embedding size for MiniLM
+            
+            # Get style features
+            style_features = self._extract_style_features(text)
+            
+            # Combine features (simple concatenation)
+            try:
+                combined_emb = np.concatenate([
+                    semantic_emb,
+                    np.array(style_features, dtype=np.float32)
                 ])
-            else:
-                features.extend([0, 0, 0, 0])
+            except Exception as e:
+                logger.error(f"Error combining features: {str(e)}")
+                combined_emb = np.zeros(384 + 9)  # Default combined size
+            
+            # Find most similar MBTI types
+            similarities = {}
+            valid_mbti_types = 0
+            
+            for mbti_type in self.mbti_types:
+                try:
+                    if mbti_type not in self.vector_dbs or not self.vector_dbs[mbti_type]:
+                        logger.warning(f"No vectors found for MBTI type: {mbti_type}")
+                        similarities[mbti_type] = 0.0
+                        continue
+                        
+                    # Get average similarity to examples of this type
+                    type_similarities = []
+                    for emb in self.vector_dbs[mbti_type].values():
+                        try:
+                            sim = self._cosine_similarity(combined_emb, emb)
+                            if not np.isnan(sim):
+                                type_similarities.append(sim)
+                        except Exception as e:
+                            logger.warning(f"Error calculating similarity for {mbti_type}: {str(e)}")
+                    
+                    if type_similarities:
+                        similarities[mbti_type] = float(np.mean(type_similarities))
+                        valid_mbti_types += 1
+                    else:
+                        similarities[mbti_type] = 0.0
+                        
+                except Exception as e:
+                    logger.error(f"Error processing MBTI type {mbti_type}: {str(e)}")
+                    similarities[mbti_type] = 0.0
+            
+            # If no valid similarities found, return error
+            if valid_mbti_types == 0:
+                error_msg = "No valid MBTI types found for comparison"
+                logger.error(error_msg)
+                return {
+                    'error': error_msg,
+                    'top_matches': [],
+                    'style_analysis': {},
+                    'success': False
+                }
+            
+            # Sort by similarity
+            sorted_types = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
+            
+            # Get top k types with validation
+            top_types = []
+            for mbti_type, similarity in sorted_types[:top_k]:
+                try:
+                    top_types.append({
+                        'type': str(mbti_type),
+                        'similarity': float(similarity)
+                    })
+                except Exception as e:
+                    logger.warning(f"Error formatting result for {mbti_type}: {str(e)}")
+            
+            # Prepare style analysis with validation
+            style_analysis = {}
+            feature_names = [
+                'avg_sentence_length', 'avg_word_length', 'punctuation_ratio',
+                'question_ratio', 'exclamation_ratio', 'caps_ratio',
+                'first_person_ratio', 'emotion_words_ratio', 'complexity_score'
+            ]
+            
+            for i, name in enumerate(feature_names):
+                try:
+                    style_analysis[name] = float(style_features[i]) if i < len(style_features) else 0.0
+                except (IndexError, ValueError, TypeError):
+                    style_analysis[name] = 0.0
+            
+            # Prepare result with validation
+            result = {
+                'top_matches': top_types,
+                'style_analysis': style_analysis,
+                'semantic_embedding': semantic_emb.tolist() if isinstance(semantic_emb, np.ndarray) else [0.0] * 384,
+                'style_embedding': [float(f) for f in style_features] if style_features else [0.0] * 9,
+                'success': True
+            }
+            
+            logger.info(f"Analysis completed. Top match: {top_types[0]['type'] if top_types else 'None'}")
+            return result
+            
         except Exception as e:
-            print(f"Error extracting POS features: {str(e)}")
-            features.extend([0, 0, 0, 0])
-        
-        # Add more features as needed
-        # features.extend([other_features...])
-        
-        return features
+            error_msg = f"Unexpected error in analyze_text: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return {
+                'error': error_msg,
+                'top_matches': [],
+                'style_analysis': {},
+                'success': False
+            }
     
     def analyze_text(
         self,

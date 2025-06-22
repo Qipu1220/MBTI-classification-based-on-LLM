@@ -3,19 +3,31 @@ MBTI Personality Analysis App - Streamlit Interface
 """
 
 import streamlit as st
-import sys
-import os
-from pathlib import Path
 import json
+import os
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple
+import plotly.express as px
+import pandas as pd
+from pathlib import Path
 import time
-from typing import Dict, List
+import logging
 
-# Add src to path
-sys.path.append(str(Path(__file__).parent))
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
 
+# Import local modules
 from src.pipeline import MBTIPipeline
-import google.generativeai as genai
-from app_package.generate.gemini import APIKeyManager
+from src.embedding import SemanticEmbedder
+from src.style_embedding import StyleEmbedder
 
 # Page config
 st.set_page_config(

@@ -1,58 +1,57 @@
-# MBTI Personality Analysis Pipeline
+# MBTI Personality Analysis Tool
 
-A sophisticated text analysis system that predicts MBTI personality types using advanced NLP techniques and machine learning.
+Một công cụ phân tích văn bản để dự đoán loại tính cách MBTI dựa trên phong cách viết và nội dung bằng cách sử dụng các kỹ thuật NLP tiên tiến.
 
-## 🌟 Features
+## Tính năng chính
 
-- **Dual Embedding System**: Combines semantic and stylistic text analysis
-- **Hybrid Retrieval**: Finds similar personality examples from training data
-- **Interactive Web Interface**: Built with Streamlit for easy use
-- **Text Comparison**: Compare personality traits between different texts
-- **Analysis History**: Track and review past analyses
-- **Gemini AI Integration**: Advanced prompt generation and analysis
+- **Phân tích văn bản** để dự đoán loại tính cách MBTI
+- **Điểm tương đồng ngữ nghĩa** sử dụng mô hình Sentence Transformers
+- **Phân tích phong cách viết** với 9 đặc trưng ngôn ngữ học
+- **Giao diện web tương tác** với Streamlit
+- **Hỗ trợ GPU** để tăng tốc độ xử lý
+- **Nhật ký chi tiết** để gỡ lỗi và giám sát
 
-## 🏗️ Architecture
+## Cấu trúc dự án
 
 ```
-├── app.py                 # Streamlit web interface
-├── src/                   # Core pipeline modules
-│   ├── pipeline.py        # Main orchestration
-│   ├── preprocessing.py   # Text cleaning and normalization
-│   ├── embedding.py       # Semantic embeddings
-│   ├── style_embedding.py # Style feature extraction
-│   ├── retrieval.py       # Vector similarity search
-│   ├── deduplication.py   # Response deduplication
-│   └── prompt_builder.py  # Prompt engineering
-├── app_package/generate/gemini/   # Gemini AI integration
-│   ├── api_key_manager.py # API key management
-│   ├── gemini.py          # Gemini API interface
-│   └── reset_api_key.py   # Key rotation logic
-├── mbti_dataset/          # MBTI training data
-└── requirements.txt       # Dependencies
+MBTI-Personality-Analysis/
+├── data/                    # Thư mục dữ liệu (được tạo tự động)
+├── mbti_dataset/            # Dữ liệu mẫu MBTI
+├── logs/                    # Tệp nhật ký
+├── src/                     # Mã nguồn
+│   ├── __init__.py
+│   ├── pipeline.py          # Luồng xử lý chính
+│   ├── embedding.py         # Xử lý nhúng ngữ nghĩa
+│   └── style_embedding.py   # Xử lý đặc trưng phong cách
+├── app.py                   # Ứng dụng Streamlit
+├── requirements.txt         # Các phụ thuộc
+└── README.md                # Tài liệu này
 ```
 
-## 📦 Installation
+## Yêu cầu hệ thống
 
-1. **Clone the repository**
-```bash
-git clone <repository-url>
-cd Demo_code
-```
+- Python 3.8+
+- GPU (khuyến nghị để tăng tốc độ xử lý)
+- RAM tối thiểu 8GB (16GB+ được khuyến nghị)
 
-2. **Install dependencies**
-```bash
-pip install -r requirements.txt
-```
+## Cài đặt
 
-3. **Configure environment** (Optional - for Gemini AI)
-Create a `.env` file with your Gemini API keys:
-```
-GEMINI_API_KEY_1=your_api_key_here
-GEMINI_API_KEY_2=your_second_key_here
-# Add more keys as needed
-```
+1. **Sao chép kho lưu trữ**
+   ```bash
+   git clone <repository-url>
+   cd Demo_code
+   ```
 
-## 🚀 Usage
+2. **Tạo và kích hoạt môi trường ảo** (khuyến nghị)
+   ```bash
+   # Trên Windows
+   python -m venv venv
+   .\venv\Scripts\activate
+   
+   # Trên macOS/Linux
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
 ### Web Interface (Recommended)
 
