@@ -55,13 +55,11 @@ class SemanticEmbedder:
             logger.info(f"Successfully loaded model '{self.model_name}' on {self.device}")
             
         except ImportError:
-            error_msg = "sentence-transformers package is required for semantic embeddings. Install with: pip install sentence-transformers"
-            logger.error(error_msg)
-            raise ImportError(error_msg)
+            logger.warning("sentence-transformers không khả dụng. Sẽ dùng vector 0 thay thế.")
+            self._model = None
         except Exception as e:
-            error_msg = f"Failed to load model '{self.model_name}': {str(e)}"
-            logger.error(error_msg)
-            raise RuntimeError(error_msg)
+            logger.warning(f"Không thể tải mô hình '{self.model_name}': {str(e)}. Sẽ dùng vector 0 thay thế.")
+            self._model = None
     
     def create_embedding(self, text: str) -> np.ndarray:
         """
@@ -82,6 +80,8 @@ class SemanticEmbedder:
             text = text.strip()
             
             # Encode the text
+            if self._model is None:
+                return np.zeros(384)
             with torch.no_grad():
                 embedding = self._model.encode([text], convert_to_numpy=True, show_progress_bar=False)[0]
                 

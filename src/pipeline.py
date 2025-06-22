@@ -266,9 +266,10 @@ class MBTIPipeline:
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize pipeline: {str(e)}", exc_info=True)
+            self.last_error = str(e)
+            self.logger.error(f"Failed to initialize pipeline: {self.last_error}", exc_info=True)
             self.is_initialized = False
-            return False
+            raise
     
     def _build_vector_databases(self):
         """Build vector databases from MBTI dataset"""
