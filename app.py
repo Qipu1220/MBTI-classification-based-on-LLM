@@ -72,33 +72,67 @@ def initialize_session_state():
         st.session_state.mbti_result = None
 
 def initialize_pipeline():
-    """Initialize the MBTI pipeline"""
+    """
+    Initialize the MBTI pipeline
+    
+    Returns:
+        tuple: (success: bool, message: str)
+    """
     try:
+        # Check if pipeline is already initialized
+        if st.session_state.get('pipeline_initialized', False):
+            return True, "Pipeline đã được khởi tạo trước đó."
+            
         # Check if dataset exists - use absolute path
         base_dir = Path(__file__).parent
         dataset_path = base_dir / "mbti_dataset" / "mbti_responses_800.json"
         dataset_path = dataset_path.resolve()  # Convert to absolute path
         
         if not dataset_path.exists():
-            return False, f"Không tìm thấy tập dữ liệu MBTI tại {dataset_path}. Vui lòng đảm bảo file tồn tại."
+            error_msg = f"Không tìm thấy tập dữ liệu MBTI tại {dataset_path}. Vui lòng đảm bảo file tồn tại."
+            logger.error(error_msg)
+            return False, error_msg
+        
+        logger.info(f"Đang khởi tạo pipeline với dữ liệu từ: {dataset_path}")
         
         # Initialize pipeline
-        pipeline = MBTIPipeline(data_dir=str(dataset_path.parent))
-        # pipeline.initialize()  # Initialization now handled in constructor
-        
-        st.session_state.pipeline = pipeline
-        st.session_state.pipeline_initialized = True
-        
-        # Get pipeline stats
-        stats = pipeline.get_pipeline_stats()
-        
-        # Store stats in session state for later use
-        st.session_state.pipeline_stats = stats
-        
-        return True, ""
+        try:
+            pipeline = MBTIPipeline(
+                data_dir=str(dataset_path),
+                semantic_model_name="all-MiniLM-L6-v2",
+                device=None,  # Auto-detect device
+                enable_caching=True
+            )
+            
+            # Explicitly call initialize to ensure everything is set up
+            if not pipeline.initialize():
+                error_msg = "Không thể khởi tạo pipeline. Vui lòng kiểm tra log để biết thêm chi tiết."
+                logger.error(error_msg)
+                return False, error_msg
+                
+            st.session_state.pipeline = pipeline
+            st.session_state.pipeline_initialized = True
+            
+            # Get pipeline stats
+            try:
+                stats = pipeline.get_pipeline_stats()
+                st.session_state.pipeline_stats = stats
+                logger.info(f"Pipeline stats: {stats}")
+            except Exception as stats_error:
+                logger.warning(f"Không thể lấy thống kê pipeline: {str(stats_error)}")
+            
+            logger.info("Khởi tạo pipeline thành công")
+            return True, "Khởi tạo pipeline thành công!"
+            
+        except Exception as init_error:
+            error_msg = f"Lỗi khi khởi tạo pipeline: {str(init_error)}"
+            logger.error(error_msg, exc_info=True)
+            return False, error_msg
         
     except Exception as e:
-        return False, f"Lỗi khi khởi tạo pipeline: {str(e)}"
+        error_msg = f"Lỗi không xác định khi khởi tạo pipeline: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return False, error_msg
 
 def format_responses_for_analysis(responses: Dict[str, str]) -> str:
     """Format survey responses for MBTI analysis"""

@@ -56,6 +56,8 @@ class MBTIPipeline:
         self.data_dir = Path(data_dir)
         self.enable_caching = enable_caching
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
+        # Store model name for reference/logging
+        self.embedding_model = semantic_model_name
         # Define MBTI types list early to avoid attribute errors during initialization
         self.mbti_types = [
             'INTJ', 'INTP', 'ENTJ', 'ENTP',
@@ -65,6 +67,15 @@ class MBTIPipeline:
         ]
         # Initialize empty vector databases dict; will be populated later
         self.vector_dbs: Dict[str, Dict[str, Any]] = {}
+        
+        # Initialize pipeline state
+        self.is_initialized = False
+        
+        # Initialize components
+        self.semantic_retriever = None
+        self.style_retriever = None
+        self.deduplicator = None
+        self.prompt_builder = None
         
         # Configure logging
         self.logger = logging.getLogger("MBTIPipeline")
@@ -87,11 +98,9 @@ class MBTIPipeline:
             # Initialize components
             self._initialize_components(semantic_model_name)
             
-            # Build vector databases
-            self._build_vector_databases()
-            
+            # Vector databases will be built in `initialize()` when explicitly called
             init_time = time.time() - start_time
-            self.logger.info(f"Pipeline initialized in {init_time:.2f} seconds")
+            self.logger.info(f"Core components initialized in {init_time:.2f} seconds. Call `initialize()` to build vector databases.")
             
         except Exception as e:
             self.logger.error(f"Failed to initialize pipeline: {str(e)}", exc_info=True)
@@ -129,7 +138,8 @@ class MBTIPipeline:
                 raise RuntimeError(f"Failed to initialize style embedder: {str(e)}")
             
             # Initialize other components
-            self.retriever = VectorRetriever()
+            self.semantic_retriever = VectorRetriever()
+            self.style_retriever = VectorRetriever()
             self.deduplicator = ResponseDeduplicator()
             self.prompt_builder = PromptBuilder()
             
@@ -204,44 +214,61 @@ class MBTIPipeline:
         
         Args:
             force_rebuild: Whether to force rebuild of vector databases
-        """
-        print("Initializing MBTI Pipeline...")
-        
-        # Create data directory in the same directory as the dataset
-        data_dir = Path(self.data_dir).parent / "data"
-        os.makedirs(data_dir, exist_ok=True)
-        
-        # Define vector database paths
-        semantic_db_path = data_dir / "semantic_vectors.json"
-        style_db_path = data_dir / "style_vectors.json"
-        
-        if not force_rebuild and semantic_db_path.exists() and style_db_path.exists():
-            print("Loading existing vector databases...")
-            try:
-                self.semantic_retriever.load_from_file(str(semantic_db_path))
-                self.style_retriever.load_from_file(str(style_db_path))
-                print("Successfully loaded vector databases.")
-            except Exception as e:
-                print(f"Error loading vector databases: {e}")
-                print("Rebuilding vector databases...")
-                force_rebuild = True
-        
-        if force_rebuild or not semantic_db_path.exists() or not style_db_path.exists():
-            print("Building vector databases from dataset...")
-            self._build_vector_databases()
             
-            # Save vector databases
-            try:
-                self.semantic_retriever.save_to_file(str(semantic_db_path))
-                self.style_retriever.save_to_file(str(style_db_path))
-                print(f"Vector databases saved to {data_dir}")
-            except Exception as e:
-                print(f"Warning: Could not save vector databases: {e}")
-        
-        self.is_initialized = True
-        print(f"Pipeline initialized successfully!")
-        print(f"Semantic DB: {self.semantic_retriever.get_stats()}")
-        print(f"Style DB: {self.style_retriever.get_stats()}")
+        Returns:
+            bool: True if initialization was successful, False otherwise
+        """
+        try:
+            if self.is_initialized and not force_rebuild:
+                self.logger.info("Pipeline is already initialized")
+                return True
+                
+            self.logger.info("Initializing MBTI Pipeline...")
+            
+            # Create data directory in the same directory as the dataset
+            data_dir = Path(self.data_dir).parent / "data"
+            os.makedirs(data_dir, exist_ok=True)
+            
+            # Define vector database paths
+            semantic_db_path = data_dir / "semantic_vectors.json"
+            style_db_path = data_dir / "style_vectors.json"
+            
+            # Initialize retrievers if not already done
+            if self.semantic_retriever is None:
+                self.semantic_retriever = VectorRetriever()
+                self.style_retriever = VectorRetriever()
+            
+            if not force_rebuild and semantic_db_path.exists() and style_db_path.exists():
+                self.logger.info("Loading existing vector databases...")
+                try:
+                    self.semantic_retriever.load_from_file(str(semantic_db_path))
+                    self.style_retriever.load_from_file(str(style_db_path))
+                    self.logger.info("Successfully loaded vector databases.")
+                except Exception as e:
+                    self.logger.warning(f"Error loading vector databases: {e}")
+                    self.logger.info("Rebuilding vector databases...")
+                    force_rebuild = True
+            
+            if force_rebuild or not semantic_db_path.exists() or not style_db_path.exists():
+                self.logger.info("Building vector databases from dataset...")
+                self._build_vector_databases()
+                
+                # Save vector databases
+                try:
+                    self.semantic_retriever.save_to_file(str(semantic_db_path))
+                    self.style_retriever.save_to_file(str(style_db_path))
+                    self.logger.info(f"Vector databases saved to {data_dir}")
+                except Exception as e:
+                    self.logger.warning(f"Could not save vector databases: {e}")
+            
+            self.is_initialized = True
+            self.logger.info("Pipeline initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize pipeline: {str(e)}", exc_info=True)
+            self.is_initialized = False
+            return False
     
     def _build_vector_databases(self):
         """Build vector databases from MBTI dataset"""
@@ -596,7 +623,7 @@ class MBTIPipeline:
         query_text: str,
         k: int = 5,
         semantic_weight: float = 0.8,
-        use_llm: bool = True,
+        use_llm: bool = False,
     ) -> Dict[str, Any]:
         """
         Analyze text for MBTI personality traits using both semantic and style embeddings
@@ -713,14 +740,38 @@ class MBTIPipeline:
             'top_similar': top_results,
             'analysis': analysis,
             'prompt': prompt,
-            'llm_response': llm_response,
-            'parsed_response': parsed_response,
+            'llm_response': analysis,  # Placeholder until LLM integration
+            'parsed_response': analysis,
             'query_embeddings': {
-                'semantic': query_semantic_emb.tolist(),
+                'semantic': query_sem_emb.tolist(),
                 'style': query_style_emb.tolist(),
             },
+            'embedding_model': self.embedding_model
         }
     
+    def _analyze_without_llm(self, top_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Fallback analysis method when no LLM is available."""
+        try:
+            type_counter = {}
+            for item in top_results:
+                mbti_type = item.get('mbti_type', 'Unknown')
+                type_counter[mbti_type] = type_counter.get(mbti_type, 0) + item.get('final_score', 0)
+            if not type_counter:
+                return {'summary': 'No similar responses found'}
+            predicted_type = max(type_counter, key=type_counter.get)
+            return {
+                'summary': f'Predicted MBTI type: {predicted_type}',
+                'details': type_counter
+            }
+        except Exception as e:
+            self.logger.error(f"_analyze_without_llm failed: {str(e)}")
+            return {'summary': 'Analysis error', 'error': str(e)}
+
+    def _call_llm(self, prompt: str) -> Dict[str, Any]:
+        """Stub for LLM call. Currently returns placeholder response."""
+        self.logger.warning("_call_llm is not implemented. Returning placeholder response.")
+        return {'response': 'LLM functionality not implemented', 'prompt': prompt}
+         
     def compare_texts(self, text1: str, text2: str) -> Dict[str, Any]:
         """
         Compare two texts for personality similarity
