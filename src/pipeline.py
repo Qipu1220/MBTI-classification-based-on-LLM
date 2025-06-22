@@ -229,34 +229,30 @@ class MBTIPipeline:
             data_dir = Path(self.data_dir).parent / "data"
             os.makedirs(data_dir, exist_ok=True)
             
-            # Define vector database paths
+            # Define vector database path
             semantic_db_path = data_dir / "semantic_vectors.json"
-            style_db_path = data_dir / "style_vectors.json"
             
             # Initialize retrievers if not already done
             if self.semantic_retriever is None:
                 self.semantic_retriever = VectorRetriever()
-                self.style_retriever = VectorRetriever()
             
-            if not force_rebuild and semantic_db_path.exists() and style_db_path.exists():
+            if not force_rebuild and semantic_db_path.exists():
                 self.logger.info("Loading existing vector databases...")
                 try:
                     self.semantic_retriever.load_from_file(str(semantic_db_path))
-                    self.style_retriever.load_from_file(str(style_db_path))
                     self.logger.info("Successfully loaded vector databases.")
                 except Exception as e:
                     self.logger.warning(f"Error loading vector databases: {e}")
                     self.logger.info("Rebuilding vector databases...")
                     force_rebuild = True
             
-            if force_rebuild or not semantic_db_path.exists() or not style_db_path.exists():
+            if force_rebuild or not semantic_db_path.exists():
                 self.logger.info("Building vector databases from dataset...")
                 self._build_vector_databases()
                 
                 # Save vector databases
                 try:
                     self.semantic_retriever.save_to_file(str(semantic_db_path))
-                    self.style_retriever.save_to_file(str(style_db_path))
                     self.logger.info(f"Vector databases saved to {data_dir}")
                 except Exception as e:
                     self.logger.warning(f"Could not save vector databases: {e}")
@@ -280,69 +276,74 @@ class MBTIPipeline:
         if not os.access('data', os.W_OK):
             raise PermissionError("Không có quyền ghi vào thư mục 'data'")
         
-        # Load dataset
-        if not os.path.exists(self.data_dir):
-            raise FileNotFoundError(f"Không tìm thấy file dữ liệu: {self.data_dir}")
-            
-        with open(self.data_dir, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        # Expect data_dir to be a directory that contains one or more *.json dataset files
+        data_path = Path(self.data_dir)
+        if not data_path.is_dir():
+            raise NotADirectoryError(f"data_dir phải là thư mục chứa các file .json, nhận được: {data_path}")
         
-        print(f"Processing {len(data)} MBTI responses...")
+        json_files = list(data_path.glob('*.json'))
+        if not json_files:
+            raise FileNotFoundError(f"Không tìm thấy file .json trong {data_path}")
         
-        for i, response in enumerate(data):
-            if i % 100 == 0:
-                print(f"Processed {i}/{len(data)} responses...")
-            
+        print(f"Found {len(json_files)} json files in dataset directory")
+        
+        for file_idx, file_path in enumerate(json_files, 1):
+            print(f"[{file_idx}/{len(json_files)}] Loading {file_path.name} ...")
             try:
-                # Clean and extract response
-                cleaned_response = clean_mbti_response(response)
-                answer_text = cleaned_response.get('answer_input', '')
-                
-                if not answer_text:
-                    print(f"Skipping response {i}: empty answer")
-                    continue
-                
-                # Preprocess text
-                processed_text = preprocess_text(answer_text, use_unidecode=False)
-                
-                # Create 5 chunks
-                chunks = chunk_text(processed_text, num_chunks=5)
-                
-                if not chunks:
-                    print(f"Skipping response {i}: failed to create chunks")
-                    continue
-                
-                # Create embeddings for each chunk
-                for chunk_idx, chunk in enumerate(chunks):
-                    try:
-                        # Create semantic embedding
-                        semantic_emb = self.semantic_embedder.create_embedding(chunk)
-                        
-                        # Create style embedding
-                        style_features = self._extract_style_features(chunk)
-                        style_emb = np.array(style_features)
-                        
-                        # Prepare metadata
-                        metadata = {
-                            'original_index': i,
-                            'chunk_index': chunk_idx,
-                            'mbti_type': cleaned_response.get('mbti', ''),
-                            'full_text': processed_text,
-                            'chunk_text': chunk,
-                            'style_features': style_features
-                        }
-                        
-                        # Add to retrievers
-                        self.semantic_retriever.add_item(semantic_emb, metadata)
-                        self.style_retriever.add_item(style_emb, metadata)
-                        
-                    except Exception as e:
-                        print(f"Error creating embeddings for chunk {chunk_idx} of response {i}: {str(e)}")
-                        continue
-            
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    records = json.load(f)
             except Exception as e:
-                print(f"Error processing response {i}: {str(e)}")
+                print(f"Could not parse {file_path}: {e}")
                 continue
+            
+            for i, response in enumerate(records):
+                if i % 100 == 0:
+                    print(f"Processed {i}/{len(records)} responses...")
+                
+                try:
+                    # Clean and extract response
+                    cleaned_response = clean_mbti_response(response)
+                    answer_text = cleaned_response.get('answer_input', '')
+                    
+                    if not answer_text:
+                        print(f"Skipping response {i}: empty answer")
+                        continue
+                        
+                    # Preprocess text
+                    processed_text = preprocess_text(answer_text, use_unidecode=False)
+                    
+                    # Create 5 chunks
+                    chunks = chunk_text(processed_text, num_chunks=5)
+                    
+                    if not chunks:
+                        print(f"Skipping response {i}: failed to create chunks")
+                        continue
+                    
+                    # Create embeddings for each chunk
+                    for chunk_idx, chunk in enumerate(chunks):
+                        try:
+                            # Create semantic embedding
+                            semantic_emb = self.semantic_embedder.create_embedding(chunk)
+                            
+                            # Prepare metadata (style features optional)
+                            metadata = {
+                                'original_index': i,
+                                'chunk_index': chunk_idx,
+                                'mbti_type': cleaned_response.get('mbti', ''),
+                                'full_text': processed_text,
+                                'chunk_text': chunk,
+                            }
+                            
+                            # Add to semantic retriever only
+                            self.semantic_retriever.add_item(semantic_emb, metadata)
+                            
+                        except Exception as e:
+                            print(f"Error creating embeddings for chunk {chunk_idx} of response {i}: {str(e)}")
+                            continue
+                
+                except Exception as e:
+                    print(f"Error processing response {i}: {str(e)}")
+                    continue
     
     def _extract_style_features(self, text: str) -> List[float]:
         """
@@ -370,13 +371,15 @@ class MBTIPipeline:
             
             # Ensure we have exactly 9 features
             if len(features) != 9:
-                logger.warning(f"Expected 9 style features, got {len(features)}")
+                self.logger.warning(f"Expected 9 style features, got {len(features)}")
                 features = features[:9] + [0.0] * (9 - len(features))
                 
             return features
             
         except Exception as e:
-            logger.error(f"Unexpected error in _extract_style_features: {str(e)}")
+            self.logger.error(f"Unexpected error in _extract_style_features: {str(e)}")
+            # Return default values (all zeros) in case of error
+            return [0.0] * 9
             return [0.0] * 9
     
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
@@ -810,7 +813,7 @@ class MBTIPipeline:
         return {
             'status': 'initialized',
             'semantic_db': self.semantic_retriever.get_stats(),
-            'style_db': self.style_retriever.get_stats(),
+            
             'deduplicator_weights': {
                 'semantic': self.deduplicator.semantic_weight,
                 'style': self.deduplicator.style_weight
