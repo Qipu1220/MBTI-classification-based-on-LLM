@@ -163,7 +163,8 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
             mapped_result = {
                 'analysis': {
                     'similar_responses': result.get('top_similar', []),
-                    'summary': result.get('analysis', {}).get('summary', 'No analysis available')
+                    'summary': result.get('analysis', {}).get('summary', 'No analysis available'),
+                    'prompt': result.get('prompt', 'No prompt available')
                 },
                 'predicted_type': predict_mbti_type(result)
             }
@@ -347,9 +348,11 @@ def survey_interface():
             else:
                 st.warning("Không tìm thấy mẫu tương tự trong cơ sở dữ liệu.")
             
-            # Show generated analysis prompt
-            with st.expander("🤖 Prompt phân tích được tạo"):
-                st.code(result['analysis']['prompt'], language="markdown")
+            # Show generated analysis prompt if available
+            prompt = result.get('analysis', {}).get('prompt')
+            if prompt and prompt != 'No prompt available':
+                with st.expander("🤖 Prompt phân tích được tạo"):
+                    st.code(prompt, language="markdown")
             
             # Restart survey option
             st.subheader("🔄 Làm lại khảo sát")
