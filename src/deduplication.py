@@ -48,8 +48,11 @@ class ResponseDeduplicator:
         # Keep only one response per exact content group
         unique_responses = []
         for group in content_groups.values():
-            # Keep the response with highest score if available
-            best_response = max(group, key=lambda x: x.get('score', 0))
+            # Keep the response with highest similarity/score if available
+            best_response = max(
+                group,
+                key=lambda x: x.get('hybrid_score', x.get('semantic_similarity', 0)),
+            )
             unique_responses.append(best_response)
         
         return unique_responses
