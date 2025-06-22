@@ -111,27 +111,54 @@ class MBTIPipeline:
             # Clean response
             try:
                 cleaned_response = clean_mbti_response(response)
-                text = cleaned_response.get('posts', '') or cleaned_response.get('text', '')
+                answer_text = cleaned_response.get('answer_input', '')
                 
-                if not text:
+                if not answer_text:
                     continue
                 
-                # Preprocess text
-                processed_text = preprocess_text(text)
-                
-                # Create chunks for long texts
-                chunks = chunk_text(processed_text, max_chunk_size=512)
-                
-                for chunk_idx, chunk in enumerate(chunks):
-                    # Create embeddings
-                    try:
-                        semantic_emb = self.semantic_embedder.create_embedding(chunk)
-                        style_emb = self.style_embedder.create_embedding(chunk)
-                    except Exception as e:
-                        print(f"Lỗi khi tạo embedding cho chunk {chunk_idx} của response {i}: {str(e)}")
-                        continue
+                # Extract answers from answer_input
+                try:
+                    # Split by Qn: and Ans: patterns
+                    parts = re.split(r'Q\d+:|Ans:', answer_text)
+                    # Get all answer parts (even indices after split)
+                    answers = [parts[i].strip() for i in range(1, len(parts), 2) if parts[i].strip()]
                     
-                    # Prepare metadata
+                    # Join all answers into one text
+                    text = '\n'.join(answers)
+                    
+                    # Preprocess text
+                    processed_text = preprocess_text(text)
+                    
+                    # Create chunks for long texts
+                    chunks = chunk_text(processed_text, max_chunk_size=512)
+                    
+                    for chunk_idx, chunk in enumerate(chunks):
+                        # Create embeddings
+                        try:
+                            semantic_emb = self.semantic_embedder.create_embedding(chunk)
+                            style_emb = self.style_embedder.create_embedding(chunk)
+                        except Exception as e:
+                            print(f"Lỗi khi tạo embedding cho chunk {chunk_idx} của response {i}: {str(e)}")
+                            continue
+                        
+                        # Prepare metadata
+                        metadata = {
+                            'original_index': i,
+                            'chunk_index': chunk_idx,
+                            'mbti_type': cleaned_response.get('mbti', ''),
+                            'full_text': text,
+                            'chunk_text': chunk
+                        }
+                        
+                        # Add to retrievers
+                        self.semantic_retriever.add_item(semantic_emb, metadata)
+                        self.style_retriever.add_item(style_emb, metadata)
+                except Exception as e:
+                    print(f"Lỗi khi xử lý text của response {i}: {str(e)}")
+                    continue
+            except Exception as e:
+                print(f"Lỗi khi xử lý response {i}: {str(e)}")
+                continuepare metadata
                     metadata = {
                         'original_index': i,
                         'chunk_index': chunk_idx,
