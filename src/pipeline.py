@@ -137,40 +137,25 @@ class MBTIPipeline:
                         try:
                             semantic_emb = self.semantic_embedder.create_embedding(chunk)
                             style_emb = self.style_embedder.create_embedding(chunk)
+                            
+                            # Prepare metadata
+                            metadata = {
+                                'original_index': i,
+                                'chunk_index': chunk_idx,
+                                'mbti_type': cleaned_response.get('mbti', ''),
+                                'full_text': text,
+                                'chunk_text': chunk
+                            }
+                            
+                            # Add to retrievers
+                            self.semantic_retriever.add_item(semantic_emb, metadata)
+                            self.style_retriever.add_item(style_emb, metadata)
                         except Exception as e:
                             print(f"Lỗi khi tạo embedding cho chunk {chunk_idx} của response {i}: {str(e)}")
                             continue
-                        
-                        # Prepare metadata
-                        metadata = {
-                            'original_index': i,
-                            'chunk_index': chunk_idx,
-                            'mbti_type': cleaned_response.get('mbti', ''),
-                            'full_text': text,
-                            'chunk_text': chunk
-                        }
-                        
-                        # Add to retrievers
-                        self.semantic_retriever.add_item(semantic_emb, metadata)
-                        self.style_retriever.add_item(style_emb, metadata)
                 except Exception as e:
                     print(f"Lỗi khi xử lý text của response {i}: {str(e)}")
                     continue
-            except Exception as e:
-                print(f"Lỗi khi xử lý response {i}: {str(e)}")
-                continuepare metadata
-                    metadata = {
-                        'original_index': i,
-                        'chunk_index': chunk_idx,
-                        'mbti_type': cleaned_response.get('type', ''),
-                        'full_text': text,
-                        'chunk_text': chunk
-                    }
-                    
-                    # Add to retrievers
-                    self.semantic_retriever.add_item(semantic_emb, metadata)
-                    self.style_retriever.add_item(style_emb, metadata)
-            
             except Exception as e:
                 print(f"Lỗi khi xử lý response {i}: {str(e)}")
                 continue
