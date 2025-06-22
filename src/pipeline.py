@@ -722,6 +722,9 @@ class MBTIPipeline:
         top_results = re_ranked_results[:k]
         print(f"Selected top {k} results after re-ranking\n")
         
+        # Initialize prompt with default value
+        prompt = "LLM analysis was not performed (use_llm=False)"
+        
         # Prepare prompt for LLM if needed
         if use_llm:
             prompt = self.prompt_builder.build_analysis_prompt(
