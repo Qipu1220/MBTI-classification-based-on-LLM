@@ -19,12 +19,13 @@ from .prompt_builder import PromptBuilder
 class MBTIPipeline:
     """Main pipeline for MBTI personality analysis"""
     
-    def __init__(self, data_path: str = None):
+    def __init__(self, data_path: str = None, semantic_model: str = "all-MiniLM-L6-v2"):
         """
         Initialize MBTI pipeline
         
         Args:
             data_path: Path to MBTI dataset. If None, will use default path relative to app.py
+            semantic_model: Name of the semantic embedding model to use
         """
         if data_path is None:
             # Default to mbti_dataset/mbti_responses_800.json in the project root
@@ -32,14 +33,22 @@ class MBTIPipeline:
             self.data_path = str(base_dir / "mbti_dataset" / "mbti_responses_800.json")
         else:
             self.data_path = data_path
-        self.semantic_embedder = SemanticEmbedder()
+            
+        # Initialize embedders with configurable models
+        self.semantic_embedder = SemanticEmbedder(model_name=semantic_model)
         self.style_embedder = StyleEmbedder()
-        self.semantic_retriever = VectorRetriever(embedding_dim=384)
+        
+        # Initialize retrievers with appropriate dimensions
+        self.semantic_retriever = VectorRetriever(embedding_dim=384)  # Dimension for all-MiniLM-L6-v2
         self.style_retriever = VectorRetriever(embedding_dim=9)  # Style features count
+        
+        # Initialize other components
         self.deduplicator = ResponseDeduplicator()
         self.prompt_builder = PromptBuilder()
         
+        # Initialize state
         self.is_initialized = False
+        self.embedding_model = semantic_model
     
     def initialize(self, force_rebuild: bool = False):
         """
@@ -214,38 +223,58 @@ class MBTIPipeline:
         use_llm: bool = True,
     ) -> Dict[str, Any]:
         """
-        Analyze text for MBTI personality traits
+        Analyze text for MBTI personality traits using both semantic and style embeddings
         
         Args:
             query_text: Text to analyze
             k: Number of similar examples to retrieve
-            semantic_weight: Weight for semantic vs style similarity
+            semantic_weight: Weight for semantic vs style similarity (0.0 to 1.0)
+            use_llm: Whether to use LLM for final analysis
             
         Returns:
-            Analysis results dictionary
+            Analysis results dictionary containing:
+            - query_text: Original input text
+            - processed_text: Preprocessed text
+            - semantic_embedding: Semantic embedding vector
+            - style_embedding: Style embedding vector
+            - similar_documents: List of similar documents with scores
+            - analysis: MBTI analysis results (if use_llm=True)
         """
         if not self.is_initialized:
-            raise RuntimeError("Pipeline not initialized")
+            raise RuntimeError("Pipeline not initialized. Call initialize() first.")
+            
+        if not query_text or not isinstance(query_text, str):
+            raise ValueError("query_text must be a non-empty string")
+            
+        if not 0 <= semantic_weight <= 1:
+            raise ValueError("semantic_weight must be between 0.0 and 1.0")
         
-        # Stage 1: Semantic Retrieval (Top-K)
-        print(f"Analyzing text: '{query_text[:100]}...'\n")
+        print(f"Analyzing text with {self.embedding_model} (semantic weight: {semantic_weight:.2f})\nText: '{query_text[:100]}...'\n")
         
         # Preprocess query text
         processed_text = preprocess_text(query_text, use_unidecode=False)
-        print(f"Processed text: '{processed_text[:100]}...'\n")
+        print(f"Preprocessed text: '{processed_text[:100]}...'\n")
         
-        # Create semantic embedding for query
+        # Create embeddings
+        print("Creating embeddings...")
         query_sem_emb = self.semantic_embedder.create_embedding(processed_text)
-        print("Created semantic embedding for query\n")
+        query_style_emb = self.style_embedder.create_embedding(processed_text)
         
-        # Get top-K semantic similar documents (K=20 as per requirement)
+        # Get initial semantic results (wider net)
         semantic_results = self.semantic_retriever.search(
-            query_sem_emb, k=20, include_metadata=True
+            query_sem_emb, 
+            k=min(20, len(self.semantic_retriever)),  # Get more results for re-ranking
+            include_metadata=True
         )
-        print(f"Retrieved {len(semantic_results)} semantic similar documents\n")
+        print(f"Retrieved {len(semantic_results)} semantic similar documents")
         
-        # Stage 2: Stylistic Re-ranking
+        # If no semantic results, try with style only
+        if not semantic_results and semantic_weight >= 1.0:
+            semantic_weight = 0.5  # Fallback to equal weighting
+            
+        # Re-rank with style similarity
         re_ranked_results = []
+        style_weight = 1.0 - semantic_weight
         
         # Extract style features for query
         query_style_features = self._extract_style_features(processed_text)
