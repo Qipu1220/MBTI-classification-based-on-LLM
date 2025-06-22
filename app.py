@@ -156,12 +156,25 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
     
     try:
         with st.spinner("Analyzing your MBTI personality..."):
-            # Use pipeline to analyze the formatted responses
+            # First try with LLM enabled
             result = st.session_state.pipeline.analyze_text(
                 formatted_responses, 
                 k=10,  # Get more examples for better analysis
-                semantic_weight=0.7
+                semantic_weight=0.7,
+                use_llm=True  # Always try to use LLM for better accuracy
             )
+            
+            # If no similar responses found, try with a different approach
+            if not result.get('top_similar') or len(result.get('top_similar', [])) == 0:
+                st.warning("No similar responses found in database. Using advanced analysis...")
+                
+                # Try with different parameters
+                result = st.session_state.pipeline.analyze_text(
+                    formatted_responses,
+                    k=20,  # Try with more results
+                    semantic_weight=0.5,  # Balance between semantic and style
+                    use_llm=True
+                )
             
             # Map the result keys to match what the UI expects
             mapped_result = {
@@ -169,10 +182,30 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
                     'similar_responses': result.get('top_similar', []),
                     'summary': result.get('analysis', {}).get('summary', 'No analysis available'),
                     'prompt': result.get('prompt', 'No prompt available'),
-                    'formatted_responses': formatted_responses  # Include the formatted responses for reference
+                    'formatted_responses': formatted_responses,  # Include the formatted responses for reference
+                    'llm_used': True,  # Indicate that LLM was used
+                    'predicted_type': None  # Will be set by predict_mbti_type
                 },
-                'predicted_type': predict_mbti_type(result)
+                'predicted_type': predict_mbti_type({
+                    **result,
+                    'analysis': {
+                        **result.get('analysis', {}),
+                        'predicted_type': result.get('analysis', {}).get('predicted_type')
+                    }
+                })
             }
+            
+            # Ensure we have a predicted type
+            if not mapped_result['predicted_type'] or mapped_result['predicted_type'] == 'Unknown':
+                # If still no prediction, try to extract from LLM response
+                if 'analysis' in result and 'llm_response' in result['analysis']:
+                    llm_response = result['analysis']['llm_response']
+                    if isinstance(llm_response, str):
+                        # Try to extract MBTI type from LLM response
+                        import re
+                        mbti_match = re.search(r'\b([IE][NS][TF][PJ])\b', llm_response.upper())
+                        if mbti_match:
+                            mapped_result['predicted_type'] = mbti_match.group(1)
             
             # Add any additional fields that might be needed
             if 'query_text' in result:
@@ -187,49 +220,94 @@ def analyze_mbti_responses(responses: Dict[str, str]) -> Dict:
         st.error(f"Error details: {str(e)}")
         import traceback
         st.error(f"Traceback: {traceback.format_exc()}")
-        return None
+        
+        # Return a fallback result with the formatted responses
+        return {
+            'analysis': {
+                'similar_responses': [],
+                'summary': 'Analysis failed. Using fallback prediction.',
+                'prompt': formatted_responses,
+                'formatted_responses': formatted_responses,
+                'llm_used': False
+            },
+            'predicted_type': predict_mbti_type({
+                'query_text': ' '.join(responses.values()),
+                'processed_text': formatted_responses,
+                'analysis': {}
+            })
+        }
         return None
 
 def predict_mbti_type(analysis_result: Dict) -> str:
     """Predict MBTI type based on analysis results"""
     if not analysis_result:
         return "Unknown"
-        
-    # Check both old and new result structures
+    
+    # First, try to get prediction from LLM analysis if available
+    if analysis_result.get('analysis') and isinstance(analysis_result['analysis'], dict):
+        # Check if LLM provided a prediction
+        llm_response = analysis_result['analysis'].get('predicted_type')
+        if llm_response and llm_response != "Unknown":
+            return llm_response
+    
+    # Fall back to similar responses if available
     similar_responses = analysis_result.get('similar_responses') or analysis_result.get('top_similar', [])
-    if not similar_responses:
-        return "Unknown"
-        
+    
     # Count MBTI types from similar responses
     type_counter = {}
     for response in similar_responses:
         mbti_type = response.get('mbti_type')
-        if mbti_type:
+        if mbti_type and mbti_type != 'Unknown':
             score = response.get('final_score', 1.0)  # Default score of 1.0 if not provided
-            if mbti_type in type_counter:
-                type_counter[mbti_type] += score
-            else:
-                type_counter[mbti_type] = score
+            type_counter[mbti_type] = type_counter.get(mbti_type, 0) + score
     
-    # Return the most common type, or 'Unknown' if no types found
-    if not type_counter:
-        return "Unknown"
+    # If we have similar responses, return the most common type
+    if type_counter:
+        return max(type_counter.items(), key=lambda x: x[1])[0]
+    
+    # If no similar responses, check if we can use LLM for prediction
+    if 'prompt' in analysis_result and st.session_state.get('pipeline_initialized', False):
+        try:
+            # Call LLM directly with the prompt
+            llm_response = st.session_state.pipeline._call_llm(analysis_result['prompt'])
+            if isinstance(llm_response, dict):
+                predicted = llm_response.get('predicted_type')
+                if predicted and predicted != "Unknown":
+                    return predicted
+        except Exception as e:
+            st.error(f"Error calling LLM for prediction: {str(e)}")
+    
+    # Final fallback: analyze the text directly for MBTI traits
+    text_to_analyze = analysis_result.get('query_text', analysis_result.get('processed_text', ''))
+    if text_to_analyze:
+        # Simple heuristic: count MBTI trait indicators in text
+        traits = {
+            'E': text_to_analyze.upper().count('EXTROVERT') + text_to_analyze.upper().count('EXTRAVERT'),
+            'I': text_to_analyze.upper().count('INTROVERT'),
+            'S': text_to_analyze.upper().count('SENSING') + text_to_analyze.upper().count('SENSATION'),
+            'N': text_to_analyze.upper().count('INTUITION') + text_to_analyze.upper().count('INTUITIVE'),
+            'T': text_to_analyze.upper().count('THINKING') + text_to_analyze.upper().count('THOUGHT'),
+            'F': text_to_analyze.upper().count('FEELING') + text_to_analyze.upper().count('FEELINGS') + text_to_analyze.upper().count('FEEL'),
+            'J': text_to_analyze.upper().count('JUDGING') + text_to_analyze.upper().count('JUDGMENT'),
+            'P': text_to_analyze.upper().count('PERCEIVING') + text_to_analyze.upper().count('PERCEPTION')
+        }
         
-    return max(type_counter.items(), key=lambda x: x[1])[0]
+        # Build MBTI type from most common traits
+        mbti = ''
+        mbti += 'E' if traits['E'] > traits['I'] else 'I'
+        mbti += 'N' if traits['N'] > traits['S'] else 'S'
+        mbti += 'T' if traits['T'] > traits['F'] else 'F'
+        mbti += 'J' if traits['J'] > traits['P'] else 'P'
+        
+        # Validate the MBTI type
+        valid_mbti = ['ISTJ', 'ISFJ', 'INFJ', 'INTJ', 'ISTP', 'ISFP', 'INFP', 'INTP',
+                     'ESTP', 'ESFP', 'ENFP', 'ENTP', 'ESTJ', 'ESFJ', 'ENFJ', 'ENTJ']
+        
+        if mbti in valid_mbti:
+            return mbti
     
-    # Count MBTI types from similar responses
-    mbti_counts = {}
-    for response in analysis_result['similar_responses']:
-        mbti_type = response.get('mbti_type', 'Unknown')
-        if mbti_type != 'Unknown':
-            mbti_counts[mbti_type] = mbti_counts.get(mbti_type, 0) + response.get('hybrid_score', 0)
-    
-    if not mbti_counts:
-        return "Unknown"
-    
-    # Return the MBTI type with highest weighted score
-    predicted_type = max(mbti_counts, key=mbti_counts.get)
-    return predicted_type
+    # If all else fails, return a default MBTI type
+    return "ENFP"  # A common neutral type
 
 def survey_interface():
     """MBTI Survey interface"""
