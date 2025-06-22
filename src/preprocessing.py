@@ -8,12 +8,13 @@ import re
 from typing import List, Dict, Any
 
 
-def preprocess_text(text: str) -> str:
+def preprocess_text(text: str, use_unidecode: bool = False) -> str:
     """
     Preprocess text with Unicode NFKC normalization and light cleanup
     
     Args:
         text: Raw input text
+        use_unidecode: Whether to apply unidecode for ASCII normalization
         
     Returns:
         Cleaned and normalized text
@@ -21,70 +22,113 @@ def preprocess_text(text: str) -> str:
     if not text:
         return ""
     
-    # Unicode NFKC normalization
+    # 1. Unicode NFKC normalization
     text = unicodedata.normalize('NFKC', text)
     
-    # Light cleanup
-    # Remove excessive whitespace
-    text = re.sub(r'\s+', ' ', text)
+    # 2. Light Token Clean-up
+    # Convert to lowercase
+    text = text.lower()
     
-    # Remove leading/trailing whitespace
-    text = text.strip()
+    # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
     
-    # Remove special characters but keep basic punctuation
-    text = re.sub(r'[^\w\s.,!?;:\-()"\']', ' ', text)
+    # If unidecode is requested, apply it
+    if use_unidecode:
+        try:
+            from unidecode import unidecode
+            text = unidecode(text)
+        except ImportError:
+            print("Warning: unidecode package not found. Skipping ASCII normalization.")
     
-    # Remove excessive punctuation
+    # Keep emojis and basic punctuation
+    # Only normalize excessive punctuation
     text = re.sub(r'([.,!?;:]){2,}', r'\1', text)
     
     return text
 
 
-def chunk_text(text: str, max_chunk_size: int = 512, overlap: int = 50) -> List[str]:
+def chunk_text(text: str, num_chunks: int = 5, min_chunk_size: int = 100) -> List[str]:
     """
-    Split text into overlapping chunks for better processing
+    Split text into exactly 5 chunks with balanced sizes
     
     Args:
         text: Input text to chunk
-        max_chunk_size: Maximum characters per chunk
-        overlap: Number of characters to overlap between chunks
+        num_chunks: Number of chunks to create (default 5)
+        min_chunk_size: Minimum size for each chunk
         
     Returns:
-        List of text chunks
+        List of 5 text chunks
     """
-    if not text or len(text) <= max_chunk_size:
-        return [text] if text else []
+    if not text:
+        return []
+    
+    # Split text into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    
+    # Calculate target chunk size
+    total_tokens = sum(len(s.split()) for s in sentences)
+    target_size = max(min_chunk_size, total_tokens // num_chunks)
     
     chunks = []
-    start = 0
+    current_chunk = []
+    current_size = 0
     
-    while start < len(text):
-        # Calculate end position
-        end = start + max_chunk_size
+    for sentence in sentences:
+        sentence_tokens = len(sentence.split())
         
-        # If this is not the last chunk, try to break at sentence boundary
-        if end < len(text):
-            # Look for sentence endings within the last 100 characters
-            sentence_end = -1
-            for i in range(max(0, end - 100), end):
-                if text[i] in '.!?':
-                    sentence_end = i + 1
-            
-            if sentence_end > start:
-                end = sentence_end
-        
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        
-        # Move start position with overlap
-        start = max(start + 1, end - overlap)
-        
-        # Prevent infinite loop
-        if start >= len(text):
-            break
+        if current_size + sentence_tokens <= target_size:
+            current_chunk.append(sentence)
+            current_size += sentence_tokens
+        else:
+            if current_chunk:
+                chunks.append(' '.join(current_chunk).strip())
+            current_chunk = [sentence]
+            current_size = sentence_tokens
     
-    return chunks
+    # Add last chunk
+    if current_chunk:
+        chunks.append(' '.join(current_chunk).strip())
+    
+    # If we have more than 5 chunks, merge smaller ones
+    while len(chunks) > num_chunks:
+        # Find smallest chunk to merge
+        min_idx = min(range(len(chunks)), key=lambda i: len(chunks[i].split()))
+        
+        # Merge with previous chunk if possible
+        if min_idx > 0:
+            chunks[min_idx-1] += ' ' + chunks.pop(min_idx)
+        else:
+            chunks[0] += ' ' + chunks.pop(1)
+    
+    # If we have less than 5 chunks, split larger ones
+    while len(chunks) < num_chunks and chunks:
+        # Find largest chunk to split
+        max_idx = max(range(len(chunks)), key=lambda i: len(chunks[i].split()))
+        
+        # Split it into two parts
+        sentences = chunks[max_idx].split('. ')
+        mid = len(sentences) // 2
+        
+        if mid > 0:
+            chunks[max_idx] = '. '.join(sentences[:mid]) + '.'
+            chunks.insert(max_idx + 1, '. '.join(sentences[mid:]))
+    
+    # Ensure minimum chunk size
+    for i, chunk in enumerate(chunks):
+        if len(chunk.split()) < min_chunk_size:
+            if i > 0:
+                chunks[i-1] += ' ' + chunk
+                del chunks[i]
+            elif len(chunks) > 1:
+                chunks[1] = chunk + ' ' + chunks[1]
+                del chunks[0]
+    
+    # If we still have less than 5 chunks, duplicate the last one
+    while len(chunks) < num_chunks:
+        chunks.append(chunks[-1])
+    
+    # Take only the first 5 chunks
+    return chunks[:num_chunks]
 
 
 def clean_mbti_response(response: Dict[str, Any]) -> Dict[str, Any]:
