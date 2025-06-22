@@ -191,7 +191,7 @@ class MBTIPipeline:
         parsed_response = None
         if use_llm:
             try:
-                from app.generate.gemini import generate_gemini_response
+                from app_package.generate.gemini import generate_gemini_response
 
                 llm_response = generate_gemini_response(
                     f"{self.prompt_builder.system_prompt}\n\n{prompt}"

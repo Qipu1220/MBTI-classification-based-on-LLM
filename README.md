@@ -23,7 +23,7 @@ A sophisticated text analysis system that predicts MBTI personality types using 
 │   ├── retrieval.py       # Vector similarity search
 │   ├── deduplication.py   # Response deduplication
 │   └── prompt_builder.py  # Prompt engineering
-├── app/generate/gemini/   # Gemini AI integration
+├── app_package/generate/gemini/   # Gemini AI integration
 │   ├── api_key_manager.py # API key management
 │   ├── gemini.py          # Gemini API interface
 │   └── reset_api_key.py   # Key rotation logic

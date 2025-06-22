@@ -15,7 +15,7 @@ sys.path.append(str(Path(__file__).parent))
 
 from src.pipeline import MBTIPipeline
 import google.generativeai as genai
-from app.generate.gemini import APIKeyManager
+from app_package.generate.gemini import APIKeyManager
 
 # Page config
 st.set_page_config(
