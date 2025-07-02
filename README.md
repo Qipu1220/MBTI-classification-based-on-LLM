@@ -1,258 +1,184 @@
-# MBTI Personality Analysis Tool
+# MBTI Personality Analysis Application
 
-Một công cụ phân tích văn bản để dự đoán loại tính cách MBTI dựa trên phong cách viết và nội dung bằng cách sử dụng các kỹ thuật NLP tiên tiến.
+**CS117 - Computational Thinking Course Project**  
+**Vietnam National University - University of Information Technology (VNU-UIT)**
 
-## Tính năng chính
+## 📋 Project Overview
 
-- **Phân tích văn bản** để dự đoán loại tính cách MBTI
-- **Điểm tương đồng ngữ nghĩa** sử dụng mô hình Sentence Transformers
-- **Phân tích phong cách viết** với 9 đặc trưng ngôn ngữ học
-- **Giao diện web tương tác** với Streamlit
-- **Hỗ trợ GPU** để tăng tốc độ xử lý
-- **Nhật ký chi tiết** để gỡ lỗi và giám sát
+This project implements an intelligent MBTI (Myers-Briggs Type Indicator) personality analysis system using machine learning and natural language processing techniques. The application analyzes text responses to predict personality types based on the 16 MBTI personality categories.
 
-## Cấu trúc dự án
+## 🎯 Features
+
+- **Semantic Analysis**: Uses advanced embedding models to understand text semantics
+- **Style Analysis**: Analyzes writing style patterns for personality prediction
+- **Vector-based Retrieval**: Efficient similarity search using vector databases
+- **Response Deduplication**: Removes duplicate responses for better data quality
+- **Interactive Web Interface**: Streamlit-based user-friendly interface
+- **Real-time Analysis**: Instant personality type prediction from text input
+
+## 🛠️ Technology Stack
+
+- **Python 3.8+**
+- **Streamlit** - Web application framework
+- **PyTorch** - Deep learning framework
+- **Sentence Transformers** - Semantic embedding models
+- **NumPy & Pandas** - Data processing
+- **FAISS/ChromaDB** - Vector similarity search
+- **Google Gemini API** - Advanced text analysis
+
+## 📁 Project Structure
 
 ```
-MBTI-Personality-Analysis/
-├── data/                    # Thư mục dữ liệu (được tạo tự động)
-├── mbti_dataset/            # Dữ liệu mẫu MBTI
-├── logs/                    # Tệp nhật ký
-├── src/                     # Mã nguồn
-│   ├── __init__.py
-│   ├── pipeline.py          # Luồng xử lý chính
-│   ├── embedding.py         # Xử lý nhúng ngữ nghĩa
-│   └── style_embedding.py   # Xử lý đặc trưng phong cách
-├── app.py                   # Ứng dụng Streamlit
-├── requirements.txt         # Các phụ thuộc
-└── README.md                # Tài liệu này
+Demo_code/
+├── app.py                      # Main Streamlit application
+├── requirements.txt            # Python dependencies
+├── src/                        # Core modules
+│   ├── preprocessing.py        # Text preprocessing utilities
+│   ├── embedding.py           # Semantic embedding generation
+│   ├── style_embedding.py     # Writing style analysis
+│   ├── retrieval.py           # Vector-based retrieval system
+│   ├── deduplication.py       # Response deduplication
+│   ├── prompt_builder.py      # Prompt construction for LLMs
+│   └── pipeline.py            # Main analysis pipeline
+├── app/                       # Application modules
+│   └── generate/
+│       └── gemini/            # Gemini API integration
+├── mbti_dataset/              # MBTI training data
+│   └── mbti_responses_800.json
+└── image/                     # Project documentation
+    └── Pipeline.drawio.pdf    # System architecture diagram
 ```
 
-## Yêu cầu hệ thống
+## 🚀 Installation & Setup
 
-- Python 3.8+
-- GPU (khuyến nghị để tăng tốc độ xử lý)
-- RAM tối thiểu 8GB (16GB+ được khuyến nghị)
+### Prerequisites
+- Python 3.8 or higher
+- Git
 
-## Cài đặt
+### Step 1: Clone the Repository
+```bash
+git clone <repository-url>
+cd Demo_code
+```
 
-1. **Sao chép kho lưu trữ**
-   ```bash
-   git clone <repository-url>
-   cd Demo_code
-   ```
+### Step 2: Install Dependencies
+```bash
+pip install -r requirements.txt
+```
 
-2. **Tạo và kích hoạt môi trường ảo** (khuyến nghị)
-   ```bash
-   # Trên Windows
-   python -m venv venv
-   .\venv\Scripts\activate
-   
-   # Trên macOS/Linux
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+### Step 3: Configure API Keys
+Create a `.env` file in the project root:
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+```
 
-### Web Interface (Recommended)
-
-Start the Streamlit app:
+### Step 4: Run the Application
 ```bash
 streamlit run app.py
 ```
 
-Navigate to `http://localhost:8501` in your browser.
+The application will be available at `http://localhost:8501`
 
-### Features Available:
+## 💡 How It Works
 
-1. **Text Analysis**
-   - Enter text to analyze for MBTI personality traits
-   - Adjust similarity search parameters
-   - View matching examples from training data
-   - See generated analysis prompts
+1. **Text Input**: User provides text responses or personality-related content
+2. **Preprocessing**: Text is cleaned, normalized, and prepared for analysis
+3. **Embedding Generation**: 
+   - Semantic embeddings capture meaning and context
+   - Style embeddings analyze writing patterns
+4. **Vector Retrieval**: Similar personality profiles are retrieved from the database
+5. **Analysis Pipeline**: Multiple ML models analyze the text features
+6. **Prediction**: MBTI personality type is predicted with confidence scores
+7. **Results Display**: Interactive visualization of results and explanations
 
-2. **Text Comparison**
-   - Compare personality traits between two texts
-   - Side-by-side analysis results
-   - Similarity scoring
+## 📊 MBTI Types Supported
 
-3. **Analysis History**
-   - Review past analyses
-   - Export results
-   - Clear history
+The system can predict all 16 MBTI personality types:
 
-4. **Settings**
-   - Pipeline status and configuration
-   - API key management
-   - System information
+| Analysts | Diplomats | Sentinels | Explorers |
+|----------|-----------|-----------|-----------|
+| INTJ - Architect | INFJ - Advocate | ISTJ - Logistician | ISTP - Virtuoso |
+| INTP - Thinker | INFP - Mediator | ISFJ - Protector | ISFP - Adventurer |
+| ENTJ - Commander | ENFJ - Protagonist | ESTJ - Executive | ESTP - Entrepreneur |
+| ENTP - Debater | ENFP - Campaigner | ESFJ - Consul | ESFP - Entertainer |
 
-### Python API Usage
+## 🔬 Technical Approach
 
+### Machine Learning Components
+- **Semantic Embeddings**: all-MiniLM-L6-v2 model for text understanding
+- **Style Analysis**: Custom features for writing style patterns
+- **Vector Similarity**: FAISS for efficient similarity search
+- **Ensemble Methods**: Multiple models for robust predictions
+
+### Performance Optimizations
+- GPU acceleration support
+- Caching mechanisms for embeddings
+- Batch processing for multiple inputs
+- Efficient vector indexing
+
+## 📈 Usage Examples
+
+### Basic Text Analysis
 ```python
 from src.pipeline import MBTIPipeline
 
 # Initialize pipeline
-pipeline = MBTIPipeline()
+pipeline = MBTIPipeline("mbti_dataset")
 pipeline.initialize()
 
 # Analyze text
-result = pipeline.analyze_text("I love working alone on complex problems...")
-
-# Compare texts
-comparison = pipeline.compare_texts(text1, text2)
+text = "I love solving complex problems and thinking about future possibilities..."
+result = pipeline.analyze(text)
+print(f"Predicted MBTI Type: {result['mbti_type']}")
 ```
 
-## 🔬 How It Works
+### Web Interface
+1. Open the Streamlit application
+2. Enter your text in the input area
+3. Click "Analyze Personality"
+4. View detailed results and explanations
 
-### 1. Text Preprocessing
-- Unicode normalization
-- Text cleaning and chunking
-- Language detection
+## 📚 Course Context
 
-### 2. Dual Embedding Creation
-- **Semantic**: Content meaning using sentence transformers
-- **Style**: Writing patterns (sentence length, punctuation, etc.)
+This project was developed as part of the **CS117 - Computational Thinking** course at VNU - University of Information Technology. It demonstrates:
 
-### 3. Similarity Search
-- Vector database lookup
-- Hybrid scoring (semantic + style)
-- Ranked retrieval
-
-### 4. Deduplication
-- Remove similar responses
-- Diverse example selection
-
-### 5. Prompt Generation
-- Structured analysis prompts
-- Context-aware formatting
-
-## 📊 Pipeline Components
-
-### Semantic Embedder
-- Uses sentence-transformers models
-- 384-dimensional embeddings
-- Captures text meaning and context
-
-### Style Embedder  
-- Extracts writing style features:
-  - Average sentence length
-  - Punctuation usage
-  - Word complexity
-  - Emotional markers
-
-### Vector Retriever
-- Efficient similarity search
-- Configurable thresholds
-- Metadata preservation
-
-### Response Deduplicator
-- Prevents redundant examples
-- Maintains diversity
-- Weighted scoring
-
-## 🎯 MBTI Types Supported
-
-- **Analysts**: NT (INTJ, INTP, ENTJ, ENTP)
-- **Diplomats**: NF (INFJ, INFP, ENFJ, ENFP) 
-- **Sentinels**: SJ (ISTJ, ISFJ, ESTJ, ESFJ)
-- **Explorers**: SP (ISTP, ISFP, ESTP, ESFP)
-
-## 🔧 Configuration
-
-### Pipeline Parameters
-- `embedding_dim`: Embedding dimensions (default: 384)
-- `max_chunk_size`: Text chunk size (default: 512)
-- `similarity_threshold`: Minimum similarity score (default: 0.1)
-
-### Retrieval Settings
-- `k`: Number of similar examples (default: 5)
-- `semantic_weight`: Semantic vs style balance (default: 0.7)
-
-## 📈 Performance
-
-- **Initialization**: ~30-60 seconds (first run)
-- **Analysis Speed**: ~1-3 seconds per text
-- **Memory Usage**: ~500MB-1GB
-- **Dataset Size**: 800 MBTI responses
-
-## 🛠️ Development
-
-### Running Tests
-```bash
-python -m pytest tests/
-```
-
-### Code Structure
-- **Modular Design**: Each component is independently testable
-- **Type Hints**: Full type annotation support
-- **Error Handling**: Comprehensive exception management
-- **Logging**: Detailed operation logging
-
-## 🔄 Data Flow
-
-```
-Input Text → Preprocessing → Embedding Creation → 
-Similarity Search → Deduplication → Prompt Building → 
-Analysis Results
-```
-
-## 📝 Example Usage
-
-```python
-# Basic analysis
-text = "I prefer working independently on complex analytical problems."
-result = pipeline.analyze_text(text)
-print(f"Top match: {result['similar_responses'][0]['mbti_type']}")
-
-# Advanced configuration
-result = pipeline.analyze_text(
-    text, 
-    k=10,              # More examples
-    semantic_weight=0.8 # More semantic focus
-)
-```
+- **Computational Problem Solving**: Breaking down personality analysis into computational steps
+- **Algorithm Design**: Implementing efficient text analysis algorithms
+- **Data Structures**: Using appropriate data structures for text processing
+- **System Design**: Creating a complete end-to-end application
+- **Machine Learning Integration**: Applying ML techniques to real-world problems
 
 ## 🤝 Contributing
+
+This is an academic project for CS117 course. For educational purposes:
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if needed
-5. Submit a pull request
+4. Submit a pull request with detailed description
 
 ## 📄 License
 
-[Add your license information here]
+This project is developed for educational purposes as part of CS117 coursework at VNU-UIT.
 
-## 🆘 Troubleshooting
+## 👥 Authors
 
-### Common Issues
+**CS117 Students**  
+Vietnam National University - University of Information Technology
 
-1. **Pipeline initialization fails**
-   - Check all dependencies are installed
-   - Ensure dataset file exists
-   - Verify sufficient memory available
+## 🙏 Acknowledgments
 
-2. **Slow performance**
-   - Reduce dataset size for testing
-   - Adjust embedding dimensions
-   - Use GPU acceleration if available
+- VNU-UIT CS117 Course Instructors
+- Sentence Transformers library
+- Streamlit framework
+- Google Gemini API
+- Open-source MBTI datasets
 
-3. **Import errors**
-   - Verify Python path configuration
-   - Check all required packages installed
-   - Ensure compatible versions
+## 📞 Contact
 
-### Getting Help
+For questions related to this CS117 project, please contact through the course communication channels.
 
-- Check the [Issues](../../issues) page for known problems
-- Review error logs in the Streamlit interface
-- Verify system requirements are met
+---
 
-## 🔮 Future Enhancements
-
-- [ ] GPU acceleration support
-- [ ] Additional personality frameworks
-- [ ] Real-time analysis API
-- [ ] Batch processing capabilities
-- [ ] Advanced visualization tools
-- [ ] Model fine-tuning interface
+**Vietnam National University - University of Information Technology**  
+**CS117 - Computational Thinking Course Project**
